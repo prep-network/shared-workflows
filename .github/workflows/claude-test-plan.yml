@@ -6,6 +6,9 @@
 # and calls this one — copy it from a repo already using it. Required secrets:
 # ANTHROPIC_API_KEY and ASANA_TOKEN, set at the REPO or ORG level (NOT an Actions
 # environment — a reusable-workflow-calling job can't reference one).
+# Optional: set a repo/org Actions Variable STAGING_BASE_URL (e.g.
+# https://staging.prephoops.com) and pass it as the staging_base_url input so plans
+# link straight to the feature under test.
 
 name: Claude Test Plan
 
@@ -15,6 +18,11 @@ on:
       pr_number:
         required: true
         type: string
+      staging_base_url:
+        description: Base URL of the staging/test environment (e.g. https://staging.example.com). Empty to omit.
+        required: false
+        type: string
+        default: ''
       asana_url:
         description: Optional Asana task URL (used for links). Empty to skip Asana.
         required: false
@@ -75,6 +83,8 @@ jobs:
               cases the diff alone wouldn't reveal. If they are empty, build the plan from
               the PR diff alone and do not mention any missing Asana context in the comment.
 
+            Base test URL (may be empty): ${{ inputs.staging_base_url }}
+
             Step 1 — Read PR context:
               gh pr view ${{ inputs.pr_number }} --json title,body,headRefName,baseRefName,files,url
               gh pr diff ${{ inputs.pr_number }}
@@ -101,9 +111,11 @@ jobs:
             be able to do that they couldn't before?
 
             ## Setup
-            - Start with how to reach the feature: the direct page path/URL affected by this
-              PR (derive it from the diff's routes/links when possible), then required account
-              types, test data, feature-flag states, app builds, browser, etc. Be specific.
+            - Start with how to reach the feature. If a Base test URL is provided above, give
+              the full link (base URL + the page path this PR affects, derived from the diff's
+              routes/links). If it is empty, give the path and describe how to navigate. Then
+              list required account types, test data, feature-flag states, app builds, browser,
+              etc. Be specific.
 
             ## Scenario 1: <short user-facing title, e.g. "Free user hits paywall">
             1. <first action the tester takes>
@@ -126,13 +138,17 @@ jobs:
             - Format every step as a numbered action on its own line, with its expected
               result on the next line, indented and prefixed "→ Expected:". Never group all
               expected results at the bottom of a scenario.
-            - One user flow per scenario — split distinct flows (e.g. "no favorites" vs
-              "no player claimed") into separate scenarios rather than combining them.
-            - Only generate scenarios for behavior the diff actually changes. Don't pad
-              with tests for unchanged code.
+            - Complete but lean: cover every distinct user-facing behavior the diff changes,
+              and nothing beyond that. Scale the number of scenarios to the size of the change
+              — a small PR may need only one or two; a large feature may need many.
+            - One user flow per scenario — split genuinely distinct flows (e.g. "no favorites"
+              vs "no player claimed") into separate scenarios, but fold a trivial one-step
+              check into a related scenario instead of giving it its own heading.
+            - Only generate scenarios for behavior the diff actually changes. Don't pad with
+              tests for unchanged code, and don't restate the same flow twice.
+            - Keep steps terse: one action and its expected result, no narration.
             - Avoid vague phrases like "should work" or "behaves correctly." State the
               specific UI element, copy, value, or page that should appear.
-            - Keep it tight. The whole comment should fit in one screen for most PRs.
             - Always begin the comment with the draft-review disclaimer callout above,
               including in the infrastructure-only case below.
             - If the PR is purely infrastructure / dev tooling / refactor with no
