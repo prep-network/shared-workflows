@@ -110,6 +110,15 @@ jobs:
             fields", "ACF", schema names, etc.). Frame as: what should the user notice or
             be able to do that they couldn't before?
 
+            ## ⚠️ Confirm with the developer
+            (Include this section ONLY if there are genuine discrepancies between the Asana
+            task's stated requirements and what the diff implements. Omit the whole section
+            if there are none.)
+            - <Each item is a note for the DEVELOPER to reconcile before QA — not a test
+              step. Frame as "spec says X, build does Y — confirm intended", never as a
+              defect. e.g. "Task says 'show only the most recent evaluation'; the build shows
+              all evaluations in a slider — confirm the change was intended.">
+
             ## Setup
             - Start with how to reach the feature. If a Base test URL is provided above, give
               ONE clickable link, formatted as "Open <feature/page name>: <link>" where the
@@ -136,6 +145,12 @@ jobs:
             Rules — do not violate:
             - Frame every scenario from the user's POV ("As a logged-out visitor, I tap…"),
               never the engineer's ("the paywall_status meta returns true").
+            - Spec discrepancies belong ONLY in the "⚠️ Confirm with the developer" section —
+              never in Setup or Edge cases (those are for QA to execute). Anchor discrepancies
+              on the task's DESCRIPTION / acceptance criteria, NOT its title: titles are loose
+              labels, so never flag a title-vs-UI-copy difference on its own. Flag exact-copy
+              mismatches with high confidence; hedge behavioral deviations as "confirm
+              intended". If there are none (or no Asana task was provided), omit the section.
             - Format every step as a numbered action on its own line, with its expected
               result on the next line, indented and prefixed "→ Expected:". Never group all
               expected results at the bottom of a scenario.
