@@ -140,10 +140,17 @@ jobs:
               Asana descriptions are NOT Markdown — use only Asana's supported tags:
                 - Wrap everything in a single <body>…</body>.
                 - Allowed tags ONLY: <h1> <h2> <ul> <ol> <li> <strong> <em> <u> <s> <code>
-                  <a href> <hr>. Use <h2> for the "## ..." section headers, <ol><li> for
+                  <a href> <hr/>. Use <h2> for the "## ..." section headers, <ol><li> for
                   numbered steps, nested <ul><li> for expected results.
                 - Render the draft-review disclaimer as the first paragraph in <strong>.
                 - Do NOT use Markdown symbols (##, -, ✅, >) inside the HTML.
+                - It MUST be well-formed XHTML — Asana rejects invalid XML with HTTP 400.
+                  ESCAPE every literal &, <, > in text as &amp; &lt; &gt; (e.g. write
+                  "GPA &lt; 3.0" and "Undergrads &amp; GPA"). Self-close void tags as <hr/>.
+                  Close every tag and nest correctly.
+                - Do NOT use any tag outside the allowed list (no <p>, <br>, <h3>, <div>,
+                  <span>, <b>, <i>, <table>). Separate paragraphs with allowed block tags,
+                  never <br> or blank lines.
 
             Stop after writing the file(s). The workflow publishes them in the next steps.
           claude_args: |
@@ -157,40 +164,58 @@ jobs:
           PARENT: ${{ inputs.asana_gid }}
         run: |
           set -uo pipefail
-          if [ ! -s /tmp/test-plan.html ]; then
-            echo "::warning::No /tmp/test-plan.html was produced; skipping Asana subtask."
-            exit 0
-          fi
           subtask_name="🤖 QA Test Plan (auto-generated)"
-          # Find an existing auto subtask (match by name, ignoring the emoji prefix).
+
+          # Find an existing auto subtask (match by name).
           existing=$(curl -s -H "Authorization: Bearer $ASANA_TOKEN" \
             "https://app.asana.com/api/1.0/tasks/$PARENT/subtasks?opt_fields=name" \
             | jq -r '[.data[] | select(.name | contains("QA Test Plan (auto-generated)"))] | first | .gid // empty')
-          # Build the payload safely — jq handles all JSON/HTML escaping.
-          jq -n --arg name "$subtask_name" --rawfile notes /tmp/test-plan.html \
-            '{data:{name:$name, html_notes:$notes}}' > /tmp/asana-payload.json
-          if [ -n "$existing" ]; then
-            echo "Updating existing subtask $existing"
-            resp=$(curl -s -w '\n%{http_code}' -X PUT -H "Authorization: Bearer $ASANA_TOKEN" \
-              -H "Content-Type: application/json" -d @/tmp/asana-payload.json \
-              "https://app.asana.com/api/1.0/tasks/$existing?opt_fields=permalink_url")
-          else
-            echo "Creating new subtask under $PARENT"
-            resp=$(curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $ASANA_TOKEN" \
-              -H "Content-Type: application/json" -d @/tmp/asana-payload.json \
-              "https://app.asana.com/api/1.0/tasks/$PARENT/subtasks?opt_fields=permalink_url")
+
+          # Send a payload file to Asana — PUT if updating an existing subtask, POST to create.
+          send() {
+            if [ -n "$existing" ]; then
+              curl -s -w '\n%{http_code}' -X PUT -H "Authorization: Bearer $ASANA_TOKEN" \
+                -H "Content-Type: application/json" -d @"$1" \
+                "https://app.asana.com/api/1.0/tasks/$existing?opt_fields=permalink_url"
+            else
+              curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $ASANA_TOKEN" \
+                -H "Content-Type: application/json" -d @"$1" \
+                "https://app.asana.com/api/1.0/tasks/$PARENT/subtasks?opt_fields=permalink_url"
+            fi
+          }
+
+          url=""
+          # Attempt 1: rich html_notes (Asana requires strict, well-formed XHTML).
+          if [ -s /tmp/test-plan.html ]; then
+            jq -n --arg name "$subtask_name" --rawfile notes /tmp/test-plan.html \
+              '{data:{name:$name, html_notes:$notes}}' > /tmp/asana-payload.json
+            resp=$(send /tmp/asana-payload.json)
+            code=$(printf '%s' "$resp" | tail -n1)
+            body=$(printf '%s' "$resp" | sed '$d')
+            echo "Asana html_notes write HTTP status: $code"
+            url=$(printf '%s' "$body" | jq -r '.data.permalink_url // empty')
+            [ -z "$url" ] && printf 'Asana error body: %s\n' "$body"
           fi
-          code=$(printf '%s' "$resp" | tail -n1)
-          body=$(printf '%s' "$resp" | sed '$d')
-          echo "Asana write HTTP status: $code"
-          url=$(printf '%s' "$body" | jq -r '.data.permalink_url // empty')
+
+          # Attempt 2 (fallback): plain-text notes from the Markdown — never fails XML parsing.
+          if [ -z "$url" ] && [ -s /tmp/test-plan.md ]; then
+            echo "::warning::Rich HTML rejected or missing; retrying with plain-text notes."
+            jq -n --arg name "$subtask_name" --rawfile notes /tmp/test-plan.md \
+              '{data:{name:$name, notes:$notes}}' > /tmp/asana-payload-plain.json
+            resp=$(send /tmp/asana-payload-plain.json)
+            code=$(printf '%s' "$resp" | tail -n1)
+            body=$(printf '%s' "$resp" | sed '$d')
+            echo "Asana plain-notes write HTTP status: $code"
+            url=$(printf '%s' "$body" | jq -r '.data.permalink_url // empty')
+            [ -z "$url" ] && printf 'Asana error body: %s\n' "$body"
+          fi
+
           if [ -n "$url" ]; then
             echo "subtask_url=$url" >> "$GITHUB_OUTPUT"
             echo "✅ Test plan written to Asana subtask: $url" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning::Asana write failed (HTTP $code). Falling back to a PR comment."
-            printf 'Asana error body: %s\n' "$body"
-            echo "⚠️ Asana write failed (HTTP $code) — full plan posted on the PR instead." >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Asana write failed; full plan will be posted on the PR instead."
+            echo "⚠️ Asana write failed — full plan posted on the PR instead." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Post PR comment
