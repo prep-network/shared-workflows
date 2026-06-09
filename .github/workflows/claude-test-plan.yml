@@ -23,6 +23,7 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.anthropic_api_key }}
+          github_token: ${{ github.token }}
           prompt: |
             Generate a QA test plan for PR #${{ inputs.pr_number }} and post it as a single
             comment on the PR. Audience: QA testers, including juniors who may not be
