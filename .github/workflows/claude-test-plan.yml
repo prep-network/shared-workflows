@@ -79,13 +79,31 @@ jobs:
               user-visible change, write just the "What we're testing" section saying
               that, list any internal-only verification steps, and skip user scenarios.
 
-            Step 3 — Post as a single PR comment:
-              gh pr comment ${{ inputs.pr_number }} --body "$(cat <<'PLAN_EOF'
-              <your full markdown plan here>
+            Step 3 — Post or update a single PR comment (update in place, never duplicate):
+
+              The plan must end with this exact hidden marker on its own last line so the
+              comment can be found and updated on future runs:
+                <!-- claude-test-plan -->
+
+              a) Find an existing test-plan comment by its marker:
+                   existing=$(gh api repos/${{ github.repository }}/issues/${{ inputs.pr_number }}/comments \
+                     --paginate --jq '[.[] | select(.body | contains("<!-- claude-test-plan -->"))] | first | .id // empty')
+
+              b) If $existing is set, UPDATE that comment in place:
+                   gh api --method PATCH repos/${{ github.repository }}/issues/comments/$existing \
+                     -f body="$(cat <<'PLAN_EOF'
+              <your full markdown plan here, ending with the marker>
               PLAN_EOF
               )"
 
-            Do NOT post inline comments, multiple comments, or modify the PR description.
-            One comment, complete plan.
+                 Otherwise CREATE a new comment:
+                   gh pr comment ${{ inputs.pr_number }} --body "$(cat <<'PLAN_EOF'
+              <your full markdown plan here, ending with the marker>
+              PLAN_EOF
+              )"
+
+            Do NOT post inline comments, do NOT delete comments, do NOT modify the PR
+            description. Exactly one test-plan comment should exist on the PR, always
+            reflecting the latest plan.
           claude_args: |
             --allowedTools "Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(git diff:*),Bash(git log:*),Read,Glob,Grep"
