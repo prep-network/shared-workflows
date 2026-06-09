@@ -1,0 +1,91 @@
+name: Claude Test Plan
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+    secrets:
+      anthropic_api_key:
+        required: true
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.anthropic_api_key }}
+          prompt: |
+            Generate a QA test plan for PR #${{ inputs.pr_number }} and post it as a single
+            comment on the PR. Audience: QA testers, including juniors who may not be
+            familiar with the feature.
+
+            Step 1 — Read PR context:
+              gh pr view ${{ inputs.pr_number }} --json title,body,headRefName,baseRefName,files
+              gh pr diff ${{ inputs.pr_number }}
+
+              If the diff is large, focus on files most likely to have user-facing impact
+              (views/blade templates, REST responses, app payloads). Skim infra files.
+
+            Step 2 — Write the test plan using EXACTLY this Markdown structure:
+
+            ## What we're testing
+            One sentence in plain language describing what changed from a user's
+            perspective. NO implementation jargon (avoid "meta keys", "hooks", "REST
+            fields", "ACF", schema names, etc.). Frame as: what should the user notice or
+            be able to do that they couldn't before?
+
+            ## Setup
+            - Bullet points: required account types, test data, feature flag states,
+              app builds, browser, etc. Be specific about what to prepare.
+
+            ## Scenario 1: <short user-facing title, e.g. "Free user hits paywall">
+            1. <first action the tester takes>
+               - ✅ <what they should see immediately>
+            2. <next action>
+               - ✅ <what they should see>
+            (Continue with numbered steps; each step gets its ✅ expected result inline
+            directly underneath, not at the end.)
+
+            ## Scenario 2: <next workflow, only if a distinct second flow exists>
+            ...
+
+            ## Edge cases worth checking
+            - <single-line description of an edge case to verify>
+            - <another edge case>
+
+            Rules — do not violate:
+            - Frame every scenario from the user's POV ("As a logged-out visitor, I tap…"),
+              never the engineer's ("the paywall_status meta returns true").
+            - Pair each numbered step with its ✅ expected result directly below — never
+              group expected results at the bottom of a scenario.
+            - Only generate scenarios for behavior the diff actually changes. Don't pad
+              with tests for unchanged code.
+            - Avoid vague phrases like "should work" or "behaves correctly." State the
+              specific UI element, copy, value, or page that should appear.
+            - Keep it tight. The whole comment should fit in one screen for most PRs.
+            - If the PR is purely infrastructure / dev tooling / refactor with no
+              user-visible change, write just the "What we're testing" section saying
+              that, list any internal-only verification steps, and skip user scenarios.
+
+            Step 3 — Post as a single PR comment:
+              gh pr comment ${{ inputs.pr_number }} --body "$(cat <<'PLAN_EOF'
+              <your full markdown plan here>
+              PLAN_EOF
+              )"
+
+            Do NOT post inline comments, multiple comments, or modify the PR description.
+            One comment, complete plan.
+          claude_args: |
+            --allowedTools "Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(git diff:*),Bash(git log:*),Read,Glob,Grep"
