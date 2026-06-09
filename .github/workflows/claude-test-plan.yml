@@ -7,16 +7,23 @@ on:
         required: true
         type: string
       asana_url:
-        description: Optional Asana task URL to pull extra context from. Leave empty to skip.
+        description: Optional Asana task URL (used only for the header link). Empty to skip.
+        required: false
+        type: string
+        default: ''
+      asana_task_name:
+        description: Pre-fetched Asana task name (the caller resolves this). Empty if none.
+        required: false
+        type: string
+        default: ''
+      asana_task_notes:
+        description: Pre-fetched Asana task notes/description (the caller resolves this).
         required: false
         type: string
         default: ''
     secrets:
       anthropic_api_key:
         required: true
-      asana_token:
-        description: Asana Personal Access Token. Only needed if asana_url is provided.
-        required: false
 
 jobs:
   generate:
@@ -29,8 +36,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: anthropics/claude-code-action@v1
-        env:
-          ASANA_TOKEN: ${{ secrets.asana_token }}
         with:
           anthropic_api_key: ${{ secrets.anthropic_api_key }}
           github_token: ${{ github.token }}
@@ -39,27 +44,16 @@ jobs:
             comment on the PR. Audience: QA testers, including juniors who may not be
             familiar with the feature.
 
-            Step 0 — Optional Asana task context:
-              Asana task URL (may be empty): ${{ inputs.asana_url }}
+            Step 0 — Optional Asana task context (already fetched for you by the caller):
+              Asana task URL  (may be empty): ${{ inputs.asana_url }}
+              Asana task name (may be empty): ${{ inputs.asana_task_name }}
+              Asana task notes (may be empty, may span multiple lines):
+              ${{ inputs.asana_task_notes }}
 
-              If the URL above is non-empty AND the ASANA_TOKEN env var is set, fetch the
-              task for extra context about intent and acceptance criteria:
-                - Extract the numeric task gid from the URL. Asana URLs look like
-                  https://app.asana.com/0/<project_gid>/<task_gid> or
-                  https://app.asana.com/1/<workspace>/project/<proj>/task/<task_gid>;
-                  the task gid is the long number identifying the task itself.
-                - Fetch it:
-                    curl -s -H "Authorization: Bearer $ASANA_TOKEN" \
-                      "https://app.asana.com/api/1.0/tasks/<gid>?opt_fields=name,notes,completed,assignee.name,custom_fields"
-                - Optionally also read the comment thread:
-                    curl -s -H "Authorization: Bearer $ASANA_TOKEN" \
-                      "https://app.asana.com/api/1.0/tasks/<gid>/stories?opt_fields=text,created_by.name"
-                - Use the task name/notes/acceptance criteria to sharpen "What we're testing"
-                  and to find edge cases the diff alone wouldn't reveal.
-
-              If the URL is empty, the token is missing, or the fetch fails, SKIP this step
-              silently and build the plan from the PR diff alone — do not error or mention
-              the missing Asana context in the comment.
+              If a task name and/or notes are provided above, use them to understand the
+              intent and acceptance criteria — sharpen "What we're testing" and surface edge
+              cases the diff alone wouldn't reveal. If they are empty, build the plan from
+              the PR diff alone and do not mention any missing Asana context in the comment.
 
             Step 1 — Read PR context:
               gh pr view ${{ inputs.pr_number }} --json title,body,headRefName,baseRefName,files,url
@@ -75,9 +69,9 @@ jobs:
             > accuracy and completeness before handing the task off to QA.
             >
             > PR: [<the PR title>](<the PR url from `gh pr view` above>)
-            > <If an Asana task was fetched in Step 0, add a second line:
-            >  "Asana: [<task name>](<the asana_url input>)". Omit this line entirely if no
-            >  Asana task was used.>
+            > <If an Asana task name was provided in Step 0, add a second line:
+            >  "Asana: [<asana_task_name>](<asana_url>)". Omit this line entirely if no
+            >  Asana task name was provided.>
 
             ## What we're testing
             One sentence in plain language describing what changed from a user's
@@ -149,4 +143,4 @@ jobs:
             description. Exactly one test-plan comment should exist on the PR, always
             reflecting the latest plan.
           claude_args: |
-            --allowedTools "Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(git diff:*),Bash(git log:*),Bash(curl:*),Read,Write,Glob,Grep"
+            --allowedTools "Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(git diff:*),Bash(git log:*),Read,Write,Glob,Grep"
