@@ -112,10 +112,10 @@ jobs:
 
             ## Setup
             - Start with how to reach the feature. If a Base test URL is provided above, give
-              the full link (base URL + the page path this PR affects, derived from the diff's
-              routes/links). If it is empty, give the path and describe how to navigate. Then
-              list required account types, test data, feature-flag states, app builds, browser,
-              etc. Be specific.
+              a SINGLE clickable link (base URL + the affected page path from the diff) — do
+              not also show the bare path separately or repeat the URL. If it is empty, give
+              the path and describe how to navigate. Then list required account types, test
+              data, feature-flag states, app builds, browser, etc. Be specific.
 
             ## Scenario 1: <short user-facing title, e.g. "Free user hits paywall">
             1. <first action the tester takes>
@@ -172,7 +172,11 @@ jobs:
                   <a href> <hr/>. Use <h2> for the "## ..." section headers, <ol><li> for
                   numbered steps, nested <ul><li> for expected results.
                 - Render the draft-review disclaimer as the first paragraph in <strong>.
-                - Do NOT use Markdown symbols (##, -, ✅, >) inside the HTML.
+                - Make EVERY URL clickable by wrapping it: <a href="URL">link text</a>.
+                  Asana does NOT auto-link bare URLs. This includes the staging test link,
+                  the PR link, and the Asana link. Escape & in URLs as &amp; (e.g. query
+                  params: href="…?player_id=5&amp;foo=bar").
+                - Do NOT use Markdown symbols (##, -, ✅, >, [text](url)) inside the HTML.
                 - It MUST be well-formed XHTML — Asana rejects invalid XML with HTTP 400.
                   ESCAPE every literal &, <, > in text as &amp; &lt; &gt; (e.g. write
                   "GPA &lt; 3.0" and "Undergrads &amp; GPA"). Self-close void tags as <hr/>.
