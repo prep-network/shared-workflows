@@ -32,7 +32,7 @@ jobs:
             familiar with the feature.
 
             Step 1 — Read PR context:
-              gh pr view ${{ inputs.pr_number }} --json title,body,headRefName,baseRefName,files
+              gh pr view ${{ inputs.pr_number }} --json title,body,headRefName,baseRefName,files,url
               gh pr diff ${{ inputs.pr_number }}
 
               If the diff is large, focus on files most likely to have user-facing impact
