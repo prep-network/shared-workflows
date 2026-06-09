@@ -112,10 +112,11 @@ jobs:
 
             ## Setup
             - Start with how to reach the feature. If a Base test URL is provided above, give
-              a SINGLE clickable link (base URL + the affected page path from the diff) — do
-              not also show the bare path separately or repeat the URL. If it is empty, give
-              the path and describe how to navigate. Then list required account types, test
-              data, feature-flag states, app builds, browser, etc. Be specific.
+              ONE clickable link, formatted as "Open <feature/page name>: <link>" where the
+              link is base URL + the affected page path from the diff. Do not also show the
+              bare path, do not repeat the URL, and do not call it "suggested". If no base URL
+              is provided, give the path and describe how to navigate. Then list required
+              account types, test data, feature-flag states, app builds, browser, etc.
 
             ## Scenario 1: <short user-facing title, e.g. "Free user hits paywall">
             1. <first action the tester takes>
