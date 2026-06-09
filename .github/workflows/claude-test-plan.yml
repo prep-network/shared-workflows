@@ -147,6 +147,9 @@ jobs:
             - Only generate scenarios for behavior the diff actually changes. Don't pad with
               tests for unchanged code, and don't restate the same flow twice.
             - Keep steps terse: one action and its expected result, no narration.
+            - Every step's expected result must be independently verifiable. Don't write a
+              step whose "→ Expected" just restates the action (e.g. "note the player →
+              you know the player"). Fold such prep actions into the step they set up.
             - Avoid vague phrases like "should work" or "behaves correctly." State the
               specific UI element, copy, value, or page that should appear.
             - Always begin the comment with the draft-review disclaimer callout above,
