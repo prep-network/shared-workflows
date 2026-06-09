@@ -1,3 +1,12 @@
+# Claude Test Plan — reusable workflow.
+# Comment `/test-plan` on a PR to generate a QA test plan from the diff; pass an
+# Asana task link (`/test-plan <asana-url>`) to attach it to that task as a subtask.
+#
+# To adopt: add a caller workflow (on: issue_comment) that resolves the Asana link
+# and calls this one — copy it from a repo already using it. Required secrets:
+# ANTHROPIC_API_KEY and ASANA_TOKEN, set at the REPO or ORG level (NOT an Actions
+# environment — a reusable-workflow-calling job can't reference one).
+
 name: Claude Test Plan
 
 on:
@@ -92,18 +101,19 @@ jobs:
             be able to do that they couldn't before?
 
             ## Setup
-            - Bullet points: required account types, test data, feature flag states,
-              app builds, browser, etc. Be specific about what to prepare.
+            - Start with how to reach the feature: the direct page path/URL affected by this
+              PR (derive it from the diff's routes/links when possible), then required account
+              types, test data, feature-flag states, app builds, browser, etc. Be specific.
 
             ## Scenario 1: <short user-facing title, e.g. "Free user hits paywall">
             1. <first action the tester takes>
-               - <what they should see immediately>
+               → Expected: <what they should see immediately>
             2. <next action>
-               - <what they should see>
-            (Continue with numbered steps; each step gets its expected result as an indented
-            bullet directly underneath, not at the end.)
+               → Expected: <what they should see>
+            (Continue with numbered steps. Each step is one concrete action on its own line,
+            with its expected result on the next line, indented and prefixed "→ Expected:".)
 
-            ## Scenario 2: <next workflow, only if a distinct second flow exists>
+            ## Scenario 2: <next distinct flow>
             ...
 
             ## Edge cases worth checking
@@ -113,8 +123,11 @@ jobs:
             Rules — do not violate:
             - Frame every scenario from the user's POV ("As a logged-out visitor, I tap…"),
               never the engineer's ("the paywall_status meta returns true").
-            - Pair each numbered step with its expected result as an indented bullet
-              directly below — never group expected results at the bottom of a scenario.
+            - Format every step as a numbered action on its own line, with its expected
+              result on the next line, indented and prefixed "→ Expected:". Never group all
+              expected results at the bottom of a scenario.
+            - One user flow per scenario — split distinct flows (e.g. "no favorites" vs
+              "no player claimed") into separate scenarios rather than combining them.
             - Only generate scenarios for behavior the diff actually changes. Don't pad
               with tests for unchanged code.
             - Avoid vague phrases like "should work" or "behaves correctly." State the
