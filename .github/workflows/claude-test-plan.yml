@@ -38,6 +38,12 @@ jobs:
 
             Step 2 — Write the test plan using EXACTLY this Markdown structure:
 
+            > 🤖 **Draft test plan — review before use.** This was auto-generated from the
+            > PR diff as a starting point. The developer should review it thoroughly for
+            > accuracy and completeness before handing the task off to QA.
+            >
+            > PR: [<the PR title>](<the PR url from `gh pr view` above>)
+
             ## What we're testing
             One sentence in plain language describing what changed from a user's
             perspective. NO implementation jargon (avoid "meta keys", "hooks", "REST
@@ -50,11 +56,11 @@ jobs:
 
             ## Scenario 1: <short user-facing title, e.g. "Free user hits paywall">
             1. <first action the tester takes>
-               - ✅ <what they should see immediately>
+               - <what they should see immediately>
             2. <next action>
-               - ✅ <what they should see>
-            (Continue with numbered steps; each step gets its ✅ expected result inline
-            directly underneath, not at the end.)
+               - <what they should see>
+            (Continue with numbered steps; each step gets its expected result as an indented
+            bullet directly underneath, not at the end.)
 
             ## Scenario 2: <next workflow, only if a distinct second flow exists>
             ...
@@ -66,20 +72,27 @@ jobs:
             Rules — do not violate:
             - Frame every scenario from the user's POV ("As a logged-out visitor, I tap…"),
               never the engineer's ("the paywall_status meta returns true").
-            - Pair each numbered step with its ✅ expected result directly below — never
-              group expected results at the bottom of a scenario.
+            - Pair each numbered step with its expected result as an indented bullet
+              directly below — never group expected results at the bottom of a scenario.
             - Only generate scenarios for behavior the diff actually changes. Don't pad
               with tests for unchanged code.
             - Avoid vague phrases like "should work" or "behaves correctly." State the
               specific UI element, copy, value, or page that should appear.
             - Keep it tight. The whole comment should fit in one screen for most PRs.
+            - Always begin the comment with the draft-review disclaimer callout above,
+              including in the infrastructure-only case below.
             - If the PR is purely infrastructure / dev tooling / refactor with no
-              user-visible change, write just the "What we're testing" section saying
-              that, list any internal-only verification steps, and skip user scenarios.
+              user-visible change, write just the disclaimer and the "What we're testing"
+              section saying that, list any internal-only verification steps, and skip
+              user scenarios.
 
             Step 3 — Post or update a single PR comment (update in place, never duplicate):
 
-              The plan must end with this exact hidden marker on its own last line so the
+              First, write the COMPLETE plan to a file using the Write tool — do NOT build
+              the comment body inline in a shell command (command substitution can drop or
+              mangle characters). Write it to:
+                /tmp/test-plan.md
+              The file must end with this exact hidden marker on its own last line so the
               comment can be found and updated on future runs:
                 <!-- claude-test-plan -->
 
@@ -89,19 +102,16 @@ jobs:
 
               b) If $existing is set, UPDATE that comment in place:
                    gh api --method PATCH repos/${{ github.repository }}/issues/comments/$existing \
-                     -f body="$(cat <<'PLAN_EOF'
-              <your full markdown plan here, ending with the marker>
-              PLAN_EOF
-              )"
+                     -F body=@/tmp/test-plan.md
 
                  Otherwise CREATE a new comment:
-                   gh pr comment ${{ inputs.pr_number }} --body "$(cat <<'PLAN_EOF'
-              <your full markdown plan here, ending with the marker>
-              PLAN_EOF
-              )"
+                   gh pr comment ${{ inputs.pr_number }} --body-file /tmp/test-plan.md
+
+              c) Re-read the posted/updated comment with `gh api` and confirm its body
+                 matches the file and is not truncated. If it differs, re-post from the file.
 
             Do NOT post inline comments, do NOT delete comments, do NOT modify the PR
             description. Exactly one test-plan comment should exist on the PR, always
             reflecting the latest plan.
           claude_args: |
-            --allowedTools "Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(git diff:*),Bash(git log:*),Read,Glob,Grep"
+            --allowedTools "Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(git diff:*),Bash(git log:*),Read,Write,Glob,Grep"
