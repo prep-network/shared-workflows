@@ -139,6 +139,11 @@ jobs:
             - Format every step as a numbered action on its own line, with its expected
               result on the next line, indented and prefixed "→ Expected:". Never group all
               expected results at the bottom of a scenario.
+            - Turn EVERY site-relative path into a full clickable link when a Base test URL is
+              provided — anywhere in the plan, not just Setup. Render it as base URL + path
+              (e.g. /wp-admin → <base>/wp-admin, /colleges/ → <base>/colleges/). The base URL
+              has no trailing slash and paths begin with "/", so just join them. If no Base
+              test URL is provided, leave paths as-is.
             - Complete but lean: cover every distinct user-facing behavior the diff changes,
               and nothing beyond that. Scale the number of scenarios to the size of the change
               — a small PR may need only one or two; a large feature may need many.
