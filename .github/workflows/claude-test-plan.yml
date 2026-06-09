@@ -7,7 +7,12 @@ on:
         required: true
         type: string
       asana_url:
-        description: Optional Asana task URL (used only for the header link). Empty to skip.
+        description: Optional Asana task URL (used for links). Empty to skip Asana.
+        required: false
+        type: string
+        default: ''
+      asana_gid:
+        description: Resolved Asana parent task gid (the caller resolves this). Empty if none.
         required: false
         type: string
         default: ''
@@ -24,6 +29,9 @@ on:
     secrets:
       anthropic_api_key:
         required: true
+      asana_token:
+        description: Asana Personal Access Token. Required only when asana_gid is provided.
+        required: false
 
 jobs:
   generate:
@@ -36,15 +44,18 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: anthropics/claude-code-action@v1
+        env:
+          ASANA_TOKEN: ${{ secrets.asana_token }}
         with:
           anthropic_api_key: ${{ secrets.anthropic_api_key }}
           github_token: ${{ github.token }}
           prompt: |
-            Generate a QA test plan for PR #${{ inputs.pr_number }} and post it as a single
-            comment on the PR. Audience: QA testers, including juniors who may not be
-            familiar with the feature.
+            Generate a QA test plan for PR #${{ inputs.pr_number }}. Audience: QA testers,
+            including juniors who may not be familiar with the feature. Where the finished
+            plan is published depends on whether an Asana task was provided (see Step 3).
 
             Step 0 — Optional Asana task context (already fetched for you by the caller):
+              Asana parent task gid (may be empty): ${{ inputs.asana_gid }}
               Asana task URL  (may be empty): ${{ inputs.asana_url }}
               Asana task name (may be empty): ${{ inputs.asana_task_name }}
               Asana task notes (may be empty, may span multiple lines):
@@ -62,7 +73,8 @@ jobs:
               If the diff is large, focus on files most likely to have user-facing impact
               (views/blade templates, REST responses, app payloads). Skim infra files.
 
-            Step 2 — Write the test plan using EXACTLY this Markdown structure:
+            Step 2 — Compose the test plan using EXACTLY this structure (shown as Markdown;
+            Step 3 CASE A converts it to Asana HTML, CASE B keeps it as Markdown):
 
             > 🤖 **Draft test plan — review before use.** This was auto-generated from the
             > PR diff as a starting point. The developer should review it thoroughly for
@@ -115,32 +127,85 @@ jobs:
               section saying that, list any internal-only verification steps, and skip
               user scenarios.
 
-            Step 3 — Post or update a single PR comment (update in place, never duplicate):
+            Step 3 — Publish the plan. The destination depends on whether an Asana task was
+            provided (the asana_gid value in Step 0). ALWAYS write file bodies with the Write
+            tool — never build them inline in a shell command (command substitution drops or
+            mangles characters).
 
-              First, write the COMPLETE plan to a file using the Write tool — do NOT build
-              the comment body inline in a shell command (command substitution can drop or
-              mangle characters). Write it to:
-                /tmp/test-plan.md
-              The file must end with this exact hidden marker on its own last line so the
-              comment can be found and updated on future runs:
+            ══ CASE A — Asana task provided (asana_gid is NON-empty) ══
+              The plan goes into a dedicated Asana SUBTASK of the parent task, so the (often
+              long) parent description stays clean. The PR only gets a short pointer.
+
+              A1) Asana descriptions are NOT Markdown — convert the Step 2 plan to Asana's
+                  supported rich-text subset and write it to /tmp/test-plan.html:
+                    - Wrap everything in a single <body>…</body>.
+                    - Allowed tags ONLY: <h1> <h2> <ul> <ol> <li> <strong> <em> <u> <s>
+                      <code> <a href> <hr>. Use <h2> for the "## ..." section headers,
+                      <ol><li> for numbered steps, nested <ul><li> for expected results.
+                    - Render the draft-review disclaimer as the first paragraph in <strong>.
+                    - Do NOT use Markdown symbols (##, -, ✅, >) inside the HTML.
+
+              A2) Create or update the subtask. It is named EXACTLY
+                  "🤖 QA Test Plan (auto-generated)" so re-runs replace it instead of stacking.
+
+                    PARENT=${{ inputs.asana_gid }}
+
+                    # find an existing auto subtask
+                    existing=$(curl -s -H "Authorization: Bearer $ASANA_TOKEN" \
+                      "https://app.asana.com/api/1.0/tasks/$PARENT/subtasks?opt_fields=name" \
+                      | jq -r '[.data[] | select(.name | contains("QA Test Plan (auto-generated)"))] | first | .gid // empty')
+
+                    # build the payload safely — jq handles all JSON/HTML escaping
+                    jq -n --rawfile notes /tmp/test-plan.html \
+                      '{data:{name:"🤖 QA Test Plan (auto-generated)", html_notes:$notes}}' \
+                      > /tmp/asana-payload.json
+
+                    if [ -n "$existing" ]; then
+                      resp=$(curl -s -X PUT -H "Authorization: Bearer $ASANA_TOKEN" \
+                        -H "Content-Type: application/json" -d @/tmp/asana-payload.json \
+                        "https://app.asana.com/api/1.0/tasks/$existing?opt_fields=permalink_url")
+                    else
+                      resp=$(curl -s -X POST -H "Authorization: Bearer $ASANA_TOKEN" \
+                        -H "Content-Type: application/json" -d @/tmp/asana-payload.json \
+                        "https://app.asana.com/api/1.0/tasks/$PARENT/subtasks?opt_fields=permalink_url")
+                    fi
+                    subtask_url=$(printf '%s' "$resp" | jq -r '.data.permalink_url // empty')
+
+                  If the Asana call fails (non-2xx / empty subtask_url), fall back to CASE B
+                  so the work is never lost: post the full plan on the PR instead.
+
+              A3) Write a SHORT pointer to /tmp/pr-note.md (this is all the PR gets in CASE A),
+                  ending with the marker on its own last line:
+
+                    🤖 **QA test plan generated** and added to the Asana task as a subtask:
+                    **[🤖 QA Test Plan (auto-generated)](<subtask_url>)**
+
+                    Review it there before handing the task off to QA.
+
+                    <!-- claude-test-plan -->
+
+                  Then post it using the "Post/update the PR comment" block below with
+                  FILE=/tmp/pr-note.md.
+
+            ══ CASE B — No Asana task (asana_gid is EMPTY) ══
+              Write the COMPLETE Markdown plan from Step 2 to /tmp/test-plan.md, ending with
+              the marker on its own last line:
                 <!-- claude-test-plan -->
+              Then post it using the block below with FILE=/tmp/test-plan.md.
 
-              a) Find an existing test-plan comment by its marker:
+            ── Post/update the single PR comment (used by both cases) ──
+              a) Find an existing comment by the marker:
                    existing=$(gh api repos/${{ github.repository }}/issues/${{ inputs.pr_number }}/comments \
                      --paginate --jq '[.[] | select(.body | contains("<!-- claude-test-plan -->"))] | first | .id // empty')
-
-              b) If $existing is set, UPDATE that comment in place:
-                   gh api --method PATCH repos/${{ github.repository }}/issues/comments/$existing \
-                     -F body=@/tmp/test-plan.md
-
-                 Otherwise CREATE a new comment:
-                   gh pr comment ${{ inputs.pr_number }} --body-file /tmp/test-plan.md
-
-              c) Re-read the posted/updated comment with `gh api` and confirm its body
-                 matches the file and is not truncated. If it differs, re-post from the file.
+              b) If $existing is set, UPDATE in place:
+                   gh api --method PATCH repos/${{ github.repository }}/issues/comments/$existing -F body=@FILE
+                 Otherwise CREATE:
+                   gh pr comment ${{ inputs.pr_number }} --body-file FILE
+              c) Re-read the posted/updated comment with `gh api` and confirm its body matches
+                 FILE and is not truncated. If it differs, re-post from FILE.
 
             Do NOT post inline comments, do NOT delete comments, do NOT modify the PR
-            description. Exactly one test-plan comment should exist on the PR, always
-            reflecting the latest plan.
+            description. Exactly one test-plan comment should exist on the PR. In CASE A the
+            full plan lives only in the Asana subtask; in CASE B it lives on the PR.
           claude_args: |
-            --allowedTools "Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(git diff:*),Bash(git log:*),Read,Write,Glob,Grep"
+            --allowedTools "Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(git diff:*),Bash(git log:*),Bash(curl:*),Bash(jq:*),Read,Write,Glob,Grep"
