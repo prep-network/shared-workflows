@@ -212,7 +212,7 @@ jobs:
 
             Stop after writing the file(s). The workflow publishes them in the next steps.
           claude_args: |
-            --model claude-sonnet-5 --allowedTools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Read,Write,Glob,Grep"
+            --allowedTools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Read,Write,Glob,Grep"
 
       - name: Publish plan to Asana subtask
         id: asana
