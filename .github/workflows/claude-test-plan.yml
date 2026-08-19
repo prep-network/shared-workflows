@@ -1,6 +1,10 @@
 # Claude Test Plan — reusable workflow.
 # Comment `/test-plan` on a PR to generate a QA test plan from the diff; pass an
-# Asana task link (`/test-plan <asana-url>`) to attach it to that task as a subtask.
+# Asana task link (`/test-plan <asana-url>`) to attach it to that task as a subtask,
+# plus a second, simpler "External Review Test Plan" subtask for external reviewers.
+# Any text after the link (`/test-plan <asana-url> focus on the mobile flow`) is
+# treated as extra instructions for the plan — the caller parses it out of the
+# comment and forwards it as the extra_instructions input.
 #
 # To adopt: add a caller workflow (on: issue_comment) that resolves the Asana link
 # and calls this one — copy it from a repo already using it. Required secrets:
@@ -40,6 +44,11 @@ on:
         default: ''
       asana_task_notes:
         description: Pre-fetched Asana task notes/description (the caller resolves this).
+        required: false
+        type: string
+        default: ''
+      extra_instructions:
+        description: Optional free-text instructions from the requester (the caller parses any text after the Asana link in the /test-plan comment). Empty for defaults.
         required: false
         type: string
         default: ''
@@ -84,6 +93,14 @@ jobs:
               the PR diff alone and do not mention any missing Asana context in the comment.
 
             Base test URL (may be empty): ${{ inputs.staging_base_url }}
+
+            Additional instructions from the requester (may be empty, may span lines):
+              ${{ inputs.extra_instructions }}
+
+              If non-empty, follow them: they add context the diff and task can't provide
+              (what to focus on, what to skip, environment quirks, audience notes) and they
+              OVERRIDE the defaults and rules below wherever they conflict — except the
+              Step 3 file-writing mechanics, which always apply exactly as written.
 
             Step 1 — Read PR context:
               gh pr view ${{ inputs.pr_number }} --json title,body,headRefName,baseRefName,files,url
@@ -180,6 +197,38 @@ jobs:
               section saying that, list any internal-only verification steps, and skip
               user scenarios.
 
+            Step 2b — External reviewer plan. ONLY if the Asana parent task gid in Step 0 is
+            NON-empty, also compose a SEPARATE, much simpler plan for EXTERNAL reviewers —
+            the client or stakeholder who requested the feature. They are not QA testers:
+            they need a quick pass to confirm the finished task matches their expectations,
+            not exhaustive coverage. Structure:
+
+            > 🤖 **Draft — the developer should review this before sending it to external
+            > reviewers.**
+            >
+            > PR: [<the PR title>](<the PR url>)
+
+            ## What changed
+            One plain-language sentence (may reuse "What we're testing").
+
+            ## How to get there
+            The single clickable link (or navigation description) from Setup, plus only the
+            login/account info an outsider would need. No feature flags, test-data recipes,
+            or internal tooling.
+
+            ## Quick checks
+            - Do <simple action> — you should see <expected outcome>.
+            - <next check>
+
+            Rules for the external plan:
+            - At most 5–8 checks, each exactly ONE line: a single action and what they
+              should see. No multi-step numbered scenarios, no edge cases, no dev notes.
+            - Collapse the internal plan's scenarios to their essence: one check per
+              user-facing behavior, phrased as confirming the result matches expectations.
+            - Plain language only — even less jargon than the internal plan tolerates.
+            - NEVER include the "⚠️ Confirm with the developer" content here; that
+              conversation is internal.
+
             Step 3 — Write the plan to files. Do NOT post anything and do NOT call gh, curl,
             or the Asana API — later workflow steps publish these files. Always use the Write
             tool (never build file bodies inline in a shell command, which drops characters).
@@ -187,10 +236,13 @@ jobs:
               ALWAYS write the COMPLETE Markdown plan from Step 2 to:
                 /tmp/test-plan.md
 
-              ADDITIONALLY, if the Asana parent task gid in Step 0 is NON-empty, also write an
-              Asana rich-text version of the SAME plan to:
-                /tmp/test-plan.html
-              Asana descriptions are NOT Markdown — use only Asana's supported tags:
+              ADDITIONALLY, if the Asana parent task gid in Step 0 is NON-empty, also write:
+                - an Asana rich-text version of the SAME plan to /tmp/test-plan.html
+                - the external reviewer plan from Step 2b as Markdown to
+                  /tmp/external-test-plan.md and as Asana rich text to
+                  /tmp/external-test-plan.html
+              Asana descriptions are NOT Markdown — in the rich-text files use only Asana's
+              supported tags:
                 - Wrap everything in a single <body>…</body>.
                 - Allowed tags ONLY: <h1> <h2> <ul> <ol> <li> <strong> <em> <u> <s> <code>
                   <a href> <hr/>. Use <h2> for the "## ..." section headers, <ol><li> for
@@ -221,51 +273,68 @@ jobs:
           PARENT: ${{ inputs.asana_gid }}
         run: |
           set -uo pipefail
-          subtask_name="🤖 QA Test Plan (auto-generated)"
 
-          # Find an existing auto subtask (match by name).
-          existing=$(curl -s -H "Authorization: Bearer $ASANA_TOKEN" \
-            "https://app.asana.com/api/1.0/tasks/$PARENT/subtasks?opt_fields=name" \
-            | jq -r '[.data[] | select(.name | contains("QA Test Plan (auto-generated)"))] | first | .gid // empty')
+          # Fetch existing subtasks once; both publishes match against this list.
+          subtasks=$(curl -s -H "Authorization: Bearer $ASANA_TOKEN" \
+            "https://app.asana.com/api/1.0/tasks/$PARENT/subtasks?opt_fields=name")
 
-          # Send a payload file to Asana — PUT if updating an existing subtask, POST to create.
-          send() {
-            if [ -n "$existing" ]; then
-              curl -s -w '\n%{http_code}' -X PUT -H "Authorization: Bearer $ASANA_TOKEN" \
-                -H "Content-Type: application/json" -d @"$1" \
-                "https://app.asana.com/api/1.0/tasks/$existing?opt_fields=permalink_url"
-            else
-              curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $ASANA_TOKEN" \
-                -H "Content-Type: application/json" -d @"$1" \
-                "https://app.asana.com/api/1.0/tasks/$PARENT/subtasks?opt_fields=permalink_url"
+          # publish <name_match> <subtask_name> <html_file> <md_file>
+          # Creates or updates one subtask; prints its permalink URL on success (logs → stderr).
+          publish() {
+            match="$1"; subtask_name="$2"; html_file="$3"; md_file="$4"
+
+            # Find an existing auto subtask (match by name).
+            existing=$(printf '%s' "$subtasks" | jq -r --arg m "$match" \
+              '[.data[] | select(.name | contains($m))] | first | .gid // empty')
+
+            # Send a payload file to Asana — PUT if updating an existing subtask, POST to create.
+            send() {
+              if [ -n "$existing" ]; then
+                curl -s -w '\n%{http_code}' -X PUT -H "Authorization: Bearer $ASANA_TOKEN" \
+                  -H "Content-Type: application/json" -d @"$1" \
+                  "https://app.asana.com/api/1.0/tasks/$existing?opt_fields=permalink_url"
+              else
+                curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $ASANA_TOKEN" \
+                  -H "Content-Type: application/json" -d @"$1" \
+                  "https://app.asana.com/api/1.0/tasks/$PARENT/subtasks?opt_fields=permalink_url"
+              fi
+            }
+
+            url=""
+            # Attempt 1: rich html_notes (Asana requires strict, well-formed XHTML).
+            if [ -s "$html_file" ]; then
+              jq -n --arg name "$subtask_name" --rawfile notes "$html_file" \
+                '{data:{name:$name, html_notes:$notes}}' > /tmp/asana-payload.json
+              resp=$(send /tmp/asana-payload.json)
+              code=$(printf '%s' "$resp" | tail -n1)
+              body=$(printf '%s' "$resp" | sed '$d')
+              echo "Asana html_notes write for \"$subtask_name\" HTTP status: $code" >&2
+              url=$(printf '%s' "$body" | jq -r '.data.permalink_url // empty')
+              [ -z "$url" ] && printf 'Asana error body: %s\n' "$body" >&2
             fi
+
+            # Attempt 2 (fallback): plain-text notes from the Markdown — never fails XML parsing.
+            if [ -z "$url" ] && [ -s "$md_file" ]; then
+              echo "::warning::Rich HTML for \"$subtask_name\" rejected or missing; retrying with plain-text notes." >&2
+              jq -n --arg name "$subtask_name" --rawfile notes "$md_file" \
+                '{data:{name:$name, notes:$notes}}' > /tmp/asana-payload-plain.json
+              resp=$(send /tmp/asana-payload-plain.json)
+              code=$(printf '%s' "$resp" | tail -n1)
+              body=$(printf '%s' "$resp" | sed '$d')
+              echo "Asana plain-notes write for \"$subtask_name\" HTTP status: $code" >&2
+              url=$(printf '%s' "$body" | jq -r '.data.permalink_url // empty')
+              [ -z "$url" ] && printf 'Asana error body: %s\n' "$body" >&2
+            fi
+
+            printf '%s' "$url"
           }
 
-          url=""
-          # Attempt 1: rich html_notes (Asana requires strict, well-formed XHTML).
-          if [ -s /tmp/test-plan.html ]; then
-            jq -n --arg name "$subtask_name" --rawfile notes /tmp/test-plan.html \
-              '{data:{name:$name, html_notes:$notes}}' > /tmp/asana-payload.json
-            resp=$(send /tmp/asana-payload.json)
-            code=$(printf '%s' "$resp" | tail -n1)
-            body=$(printf '%s' "$resp" | sed '$d')
-            echo "Asana html_notes write HTTP status: $code"
-            url=$(printf '%s' "$body" | jq -r '.data.permalink_url // empty')
-            [ -z "$url" ] && printf 'Asana error body: %s\n' "$body"
-          fi
-
-          # Attempt 2 (fallback): plain-text notes from the Markdown — never fails XML parsing.
-          if [ -z "$url" ] && [ -s /tmp/test-plan.md ]; then
-            echo "::warning::Rich HTML rejected or missing; retrying with plain-text notes."
-            jq -n --arg name "$subtask_name" --rawfile notes /tmp/test-plan.md \
-              '{data:{name:$name, notes:$notes}}' > /tmp/asana-payload-plain.json
-            resp=$(send /tmp/asana-payload-plain.json)
-            code=$(printf '%s' "$resp" | tail -n1)
-            body=$(printf '%s' "$resp" | sed '$d')
-            echo "Asana plain-notes write HTTP status: $code"
-            url=$(printf '%s' "$body" | jq -r '.data.permalink_url // empty')
-            [ -z "$url" ] && printf 'Asana error body: %s\n' "$body"
-          fi
+          # NOTE: the two match strings must never be substrings of each other's names.
+          url=$(publish "QA Test Plan (auto-generated)" \
+            "🤖 QA Test Plan (auto-generated)" /tmp/test-plan.html /tmp/test-plan.md)
+          ext_url=$(publish "External Review Test Plan (auto-generated)" \
+            "🤖 External Review Test Plan (auto-generated)" \
+            /tmp/external-test-plan.html /tmp/external-test-plan.md)
 
           if [ -n "$url" ]; then
             echo "subtask_url=$url" >> "$GITHUB_OUTPUT"
@@ -275,21 +344,33 @@ jobs:
             echo "⚠️ Asana write failed — full plan posted on the PR instead." >> "$GITHUB_STEP_SUMMARY"
           fi
 
+          if [ -n "$ext_url" ]; then
+            echo "external_subtask_url=$ext_url" >> "$GITHUB_OUTPUT"
+            echo "✅ External review plan written to Asana subtask: $ext_url" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::External review plan was not written to Asana (missing or rejected)."
+            echo "⚠️ External review plan was not written to Asana." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Post PR comment
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ inputs.pr_number }}
           SUBTASK_URL: ${{ steps.asana.outputs.subtask_url }}
+          EXTERNAL_SUBTASK_URL: ${{ steps.asana.outputs.external_subtask_url }}
         run: |
           set -uo pipefail
           marker="<!-- claude-test-plan -->"
           if [ -n "${SUBTASK_URL:-}" ]; then
-            # CASE A success: PR gets a short pointer to the Asana subtask.
+            # CASE A success: PR gets a short pointer to the Asana subtask(s).
             {
               printf '🤖 **QA test plan generated** and added to the Asana task as a subtask:\n'
-              printf '**[🤖 QA Test Plan (auto-generated)](%s)**\n\n' "$SUBTASK_URL"
-              printf 'Review it there before handing the task off to QA.\n\n'
+              printf '**[🤖 QA Test Plan (auto-generated)](%s)**\n' "$SUBTASK_URL"
+              if [ -n "${EXTERNAL_SUBTASK_URL:-}" ]; then
+                printf '**[🤖 External Review Test Plan (auto-generated)](%s)**\n' "$EXTERNAL_SUBTASK_URL"
+              fi
+              printf '\nReview it there before handing the task off to QA.\n\n'
               printf '%s\n' "$marker"
             } > /tmp/pr-comment.md
           else
