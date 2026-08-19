@@ -1,7 +1,7 @@
 # Claude Test Plan — reusable workflow.
 # Comment `/test-plan` on a PR to generate a QA test plan from the diff; pass an
 # Asana task link (`/test-plan <asana-url>`) to attach it to that task as a subtask,
-# plus a second, simpler "External Review Test Plan" subtask for external reviewers.
+# plus a second, simpler "External Review" subtask for external reviewers.
 # Any text after the link (`/test-plan <asana-url> focus on the mobile flow`) is
 # treated as extra instructions for the plan — the caller parses it out of the
 # comment and forwards it as the extra_instructions input.
@@ -202,31 +202,40 @@ jobs:
             NON-empty, also compose a SEPARATE, much simpler plan for EXTERNAL reviewers —
             the client or stakeholder who requested the feature. They are not QA testers:
             they need a quick pass to confirm the finished task matches their expectations,
-            not exhaustive coverage. Structure:
-
-            > 🤖 **Draft — the developer should review this before sending it to external
-            > reviewers.**
-            >
-            > PR: [<the PR title>](<the PR url>)
+            not exhaustive coverage. It has NO opening disclaimer or PR link — reviewers see
+            this subtask directly in Asana, so it begins at the first header. Structure:
 
             ## What changed
             One plain-language sentence (may reuse "What we're testing").
 
-            ## How to get there
+            ## How to see it
             The single clickable link (or navigation description) from Setup, plus only the
             login/account info an outsider would need. No feature flags, test-data recipes,
             or internal tooling.
 
-            ## Quick checks
-            - Do <simple action> — you should see <expected outcome>.
-            - <next check>
+            ## What to confirm
+            - Do <simple action> — confirm <expected outcome>.
+            - <next item>
+
+            ## Does it match what you expected?
+            Two sentences, addressed to the reviewer: if anything looks different from what
+            you asked for, reply on this task with what you expected instead; if it all
+            looks right, reply here to confirm and we'll move it along.
 
             Rules for the external plan:
-            - At most 5–8 checks, each exactly ONE line: a single action and what they
-              should see. No multi-step numbered scenarios, no edge cases, no dev notes.
-            - Collapse the internal plan's scenarios to their essence: one check per
-              user-facing behavior, phrased as confirming the result matches expectations.
+            - Aim for ~5 items, 8 at the absolute most, each exactly ONE line: a single
+              action and what to confirm. No multi-step numbered scenarios, no dev notes.
+            - Collapse the internal plan's scenarios to their essence: one item per
+              user-facing behavior, phrased in the same "confirm ..." voice as the heading.
+              Fold micro-interactions (individual links, icons, dropdowns in the same panel)
+              into their parent behavior instead of listing each one.
+            - Skip edge cases UNLESS an external reviewer would plausibly hit one on a
+              normal pass (e.g. a page with no data yet) — then include it as one item.
             - Plain language only — even less jargon than the internal plan tolerates.
+            - The entire plan must stand alone for an outsider: no PR or repo links, no
+              internal tool names, nothing addressed to the team. If the feature is only
+              reachable with internal credentials, say in "How to see it" what access the
+              reviewer should request from the team.
             - NEVER include the "⚠️ Confirm with the developer" content here; that
               conversation is internal.
 
@@ -248,7 +257,9 @@ jobs:
                 - Allowed tags ONLY: <h1> <h2> <ul> <ol> <li> <strong> <em> <u> <s> <code>
                   <a href> <hr/>. Use <h2> for the "## ..." section headers, <ol><li> for
                   numbered steps, nested <ul><li> for expected results.
-                - Render the draft-review disclaimer as the first paragraph in <strong>.
+                - Render the internal plan's draft-review disclaimer as the first paragraph
+                  in <strong>. The external plan has no opening callout — it starts
+                  directly at the "What changed" header.
                 - Make EVERY URL clickable by wrapping it: <a href="URL">link text</a>.
                   Asana does NOT auto-link bare URLs. This includes the staging test link,
                   the PR link, and the Asana link. Escape & in URLs as &amp; (e.g. query
@@ -331,10 +342,12 @@ jobs:
           }
 
           # NOTE: the two match strings must never be substrings of each other's names.
-          url=$(publish "QA Test Plan (auto-generated)" \
-            "🤖 QA Test Plan (auto-generated)" /tmp/test-plan.html /tmp/test-plan.md)
-          ext_url=$(publish "External Review Test Plan (auto-generated)" \
-            "🤖 External Review Test Plan (auto-generated)" \
+          # They also still match subtasks created under the pre-rename names ("🤖 QA Test
+          # Plan (auto-generated)" etc.), which the update PUT renames in place.
+          url=$(publish "QA Test Plan" \
+            "🤖 QA Test Plan" /tmp/test-plan.html /tmp/test-plan.md)
+          ext_url=$(publish "External Review" \
+            "🤖 External Review" \
             /tmp/external-test-plan.html /tmp/external-test-plan.md)
 
           if [ -n "$url" ]; then
@@ -367,11 +380,13 @@ jobs:
             # CASE A success: PR gets a short pointer to the Asana subtask(s).
             {
               printf '🤖 **QA test plan generated** and added to the Asana task as a subtask:\n'
-              printf '**[🤖 QA Test Plan (auto-generated)](%s)**\n' "$SUBTASK_URL"
+              printf '**[🤖 QA Test Plan](%s)**\n' "$SUBTASK_URL"
               if [ -n "${EXTERNAL_SUBTASK_URL:-}" ]; then
-                printf '**[🤖 External Review Test Plan (auto-generated)](%s)**\n' "$EXTERNAL_SUBTASK_URL"
+                printf '**[🤖 External Review](%s)**\n' "$EXTERNAL_SUBTASK_URL"
+                printf '\nReview both before handing the task off to QA — external reviewers see the External Review subtask as-is.\n\n'
+              else
+                printf '\nReview it there before handing the task off to QA.\n\n'
               fi
-              printf '\nReview it there before handing the task off to QA.\n\n'
               printf '%s\n' "$marker"
             } > /tmp/pr-comment.md
           else
