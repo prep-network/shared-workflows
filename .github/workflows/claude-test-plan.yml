@@ -75,6 +75,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.anthropic_api_key }}
           github_token: ${{ github.token }}
+          show_full_output: true
           prompt: |
             Generate a QA test plan for PR #${{ inputs.pr_number }}. Audience: QA testers,
             including juniors who may not be familiar with the feature. Where the finished
