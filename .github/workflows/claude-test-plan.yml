@@ -209,9 +209,9 @@ jobs:
             One plain-language sentence (may reuse "What we're testing").
 
             ## How to see it
-            The single clickable link (or navigation description) from Setup, plus only the
-            login/account info an outsider would need. No feature flags, test-data recipes,
-            or internal tooling.
+            The single clickable link (or navigation description) from Setup. Assume the
+            reviewer already has a login and knows how to sign in — "sign in with your usual
+            account" at most. No feature flags, test-data recipes, or internal tooling.
 
             ## What to confirm
             - Do <simple action> — confirm <expected outcome>.
@@ -233,9 +233,12 @@ jobs:
               normal pass (e.g. a page with no data yet) — then include it as one item.
             - Plain language only — even less jargon than the internal plan tolerates.
             - The entire plan must stand alone for an outsider: no PR or repo links, no
-              internal tool names, nothing addressed to the team. If the feature is only
-              reachable with internal credentials, say in "How to see it" what access the
-              reviewer should request from the team.
+              internal tool names, nothing addressed to the team. NEVER give the reviewer
+              errands — no "ask the team for a login", no "request a college with data
+              loaded". Getting access and test data in place is the developer's job before
+              the reviewer starts. Only mention access if the feature genuinely requires an
+              unusual account type or permission, stated as a plain fact ("you'll need an
+              admin account"), not as something to go obtain.
             - NEVER include the "⚠️ Confirm with the developer" content here; that
               conversation is internal.
 
