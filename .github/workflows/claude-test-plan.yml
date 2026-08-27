@@ -128,24 +128,19 @@ jobs:
             fields", "ACF", schema names, etc.). Frame as: what should the user notice or
             be able to do that they couldn't before?
 
-            ## ⚠️ Confirm with the developer
-            (Include this section ONLY if there are genuine discrepancies between the Asana
-            task's stated requirements and what the diff implements. Omit the whole section
-            if there are none.)
-            - <Each item is a note for the DEVELOPER to reconcile before QA — not a test
-              step. Frame as "spec says X, build does Y — confirm intended", never as a
-              defect. e.g. "Task says 'show only the most recent evaluation'; the build shows
-              all evaluations in a slider — confirm the change was intended.">
-
-            ## Setup
-            - Start with how to reach the feature. If a Base test URL is provided above, give
-              ONE clickable link, formatted as "Open <feature/page name>: <link>" where the
-              link is base URL + the affected page path from the diff. Do not also show the
-              bare path, do not repeat the URL, and do not call it "suggested". If no base URL
-              is provided, give the path and describe how to navigate. Then list required
-              account types, test data, feature-flag states, app builds, browser, etc.
-
             ## Scenario 1: <short user-facing title, e.g. "Free user hits paywall">
+            **Preconditions**
+            - Open <feature/page name>: <link — see the link rule below>
+            - <state that must exist before starting: the user/team/event is created, the
+              feature flag is on, the app build is installed, DevTools is open, etc.>
+
+            **Test data**
+            - <specific accounts, roles, records, or values this scenario uses>
+
+            **Environment**
+            - <browser, device, viewport — ONLY when this scenario needs a specific one>
+
+            **Steps**
             1. <first action the tester takes>
                → Expected: <what they should see immediately>
             2. <next action>
@@ -154,26 +149,34 @@ jobs:
             with its expected result on the next line, indented and prefixed "→ Expected:".)
 
             ## Scenario 2: <next distinct flow>
-            ...
-
-            ## Edge cases worth checking
-            - <single-line description of an edge case to verify>
-            - <another edge case>
+            (Same structure. EVERY scenario is fully self-contained.)
 
             Rules — do not violate:
+            - Each scenario must be executable without reading any other scenario: repeat
+              shared preconditions and test data in every scenario that needs them, never
+              write "same as Scenario 1". The first precondition is always how to reach the
+              feature. Omit any subsection with nothing to say (most scenarios need no
+              Environment; a scenario with no data needs no Test data) — "Steps" is the only
+              subsection that always appears, and its label is omitted only if it is the
+              scenario's sole subsection.
             - Frame every scenario from the user's POV ("As a logged-out visitor, I tap…"),
               never the engineer's ("the paywall_status meta returns true").
-            - Spec discrepancies belong ONLY in the "⚠️ Confirm with the developer" section —
-              never in Setup or Edge cases (those are for QA to execute). Anchor discrepancies
-              on the task's DESCRIPTION / acceptance criteria, NOT its title: titles are loose
-              labels, so never flag a title-vs-UI-copy difference on its own. Flag exact-copy
-              mismatches with high confidence; hedge behavioral deviations as "confirm
-              intended". If there are none (or no Asana task was provided), omit the section.
+            - Do NOT flag spec-vs-build discrepancies anywhere in the plan — those surface
+              in code review, not QA. Use the Asana notes to understand intent, but write
+              every scenario against what the diff actually implements.
+            - There is NO edge-cases section. When an edge case matters — a tester could
+              realistically hit it and the outcome is user-visible (empty states, missing
+              data, permission differences) — promote it into a numbered step of a related
+              scenario, or its own scenario if the setup differs. Drop the rest entirely;
+              never append a list of unexecuted edge-case bullets.
             - Format every step as a numbered action on its own line, with its expected
               result on the next line, indented and prefixed "→ Expected:". Never group all
               expected results at the bottom of a scenario.
-            - Turn EVERY site-relative path into a full clickable link when a Base test URL is
-              provided — anywhere in the plan, not just Setup. Render it as base URL + path
+            - Turn EVERY site-relative path into a full clickable link when a Base test URL
+              is provided — anywhere in the plan, not just preconditions. Give ONE clickable
+              link per page, formatted as "Open <feature/page name>: <link>" where the link
+              is base URL + the affected page path from the diff; do not also show the bare
+              path and do not call it "suggested". Render links as base URL + path
               (e.g. /wp-admin → <base>/wp-admin, /colleges/ → <base>/colleges/). The base URL
               has no trailing slash and paths begin with "/", so just join them. If no Base
               test URL is provided, leave paths as-is.
@@ -209,7 +212,8 @@ jobs:
             One plain-language sentence (may reuse "What we're testing").
 
             ## How to see it
-            The single clickable link (or navigation description) from Setup. Assume the
+            The single clickable link (or navigation description) from the internal plan's
+            scenario preconditions. Assume the
             reviewer already has a login and knows how to sign in — "sign in with your usual
             account" at most. No feature flags, test-data recipes, or internal tooling.
 
@@ -239,8 +243,8 @@ jobs:
               the reviewer starts. Only mention access if the feature genuinely requires an
               unusual account type or permission, stated as a plain fact ("you'll need an
               admin account"), not as something to go obtain.
-            - NEVER include the "⚠️ Confirm with the developer" content here; that
-              conversation is internal.
+            - NEVER mention spec-vs-build discrepancies here either; those are handled in
+              code review.
 
             Step 3 — Write the plan to files. Do NOT post anything and do NOT call gh, curl,
             or the Asana API — later workflow steps publish these files. Always use the Write
@@ -259,7 +263,10 @@ jobs:
                 - Wrap everything in a single <body>…</body>.
                 - Allowed tags ONLY: <h1> <h2> <ul> <ol> <li> <strong> <em> <u> <s> <code>
                   <a href> <hr/>. Use <h2> for the "## ..." section headers, <ol><li> for
-                  numbered steps, nested <ul><li> for expected results.
+                  numbered steps, nested <ul><li> for expected results. Render each
+                  scenario-subsection label (Preconditions / Test data / Environment /
+                  Steps) as <strong>Label</strong> on its own line, followed by its
+                  <ul> or <ol> list.
                 - Render the internal plan's draft-review disclaimer as the first paragraph
                   in <strong>. The external plan has no opening callout — it starts
                   directly at the "What changed" header.
