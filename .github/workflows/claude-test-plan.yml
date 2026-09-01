@@ -6,13 +6,19 @@
 # treated as extra instructions for the plan — the caller parses it out of the
 # comment and forwards it as the extra_instructions input.
 #
-# To adopt: add a caller workflow (on: issue_comment) that resolves the Asana link
-# and calls this one — copy it from a repo already using it. Required secrets:
+# To adopt: add a caller workflow (on: issue_comment) that resolves the Asana link,
+# fetches the task's name/notes/comments, and calls this one — copy it from a repo
+# already using it. Required secrets:
 # ANTHROPIC_API_KEY and ASANA_TOKEN, set at the REPO or ORG level (NOT an Actions
 # environment — a reusable-workflow-calling job can't reference one).
 # Optional: set a repo/org Actions Variable STAGING_BASE_URL (e.g.
 # https://staging.prephoops.com) and pass it as the staging_base_url input so plans
 # link straight to the feature under test.
+# Optional: commit a QA fixtures file (default path .github/qa-fixtures.md, override
+# via the fixtures_path input) listing the repo's common test links (e.g. a paywalled
+# article) and test accounts (e.g. a subscribed user) — generated plans reuse those
+# in scenario preconditions and test data instead of inventing placeholders. A
+# copyable template lives in this repo at .github/qa-fixtures.example.md.
 
 name: Claude Test Plan
 
@@ -47,11 +53,21 @@ on:
         required: false
         type: string
         default: ''
+      asana_task_comments:
+        description: 'Pre-fetched Asana task comments, oldest first, one per line as "author (date): text" (the caller fetches stories and filters to comments). Empty if none.'
+        required: false
+        type: string
+        default: ''
       extra_instructions:
         description: Optional free-text instructions from the requester (the caller parses any text after the Asana link in the /test-plan comment). Empty for defaults.
         required: false
         type: string
         default: ''
+      fixtures_path:
+        description: Repo-relative path to a QA fixtures file listing common test links and accounts. Ignored if the file doesn't exist.
+        required: false
+        type: string
+        default: '.github/qa-fixtures.md'
     secrets:
       anthropic_api_key:
         required: true
@@ -88,10 +104,18 @@ jobs:
               Asana task notes (may be empty, may span multiple lines):
               ${{ inputs.asana_task_notes }}
 
-              If a task name and/or notes are provided above, use them to understand the
-              intent and acceptance criteria — sharpen "What we're testing" and surface edge
-              cases the diff alone wouldn't reveal. If they are empty, build the plan from
-              the PR diff alone and do not mention any missing Asana context in the comment.
+              Asana task comments (may be empty; oldest first, one per line as
+              "author (date): text"):
+              ${{ inputs.asana_task_comments }}
+
+              If a task name, notes, and/or comments are provided above, use them to
+              understand the intent and acceptance criteria — sharpen "What we're testing"
+              and surface edge cases the diff alone wouldn't reveal. Comments often refine
+              or override the description: where they conflict, the LATEST comment is the
+              current statement of intent. Comments are discussion, not spec — ignore
+              tangents, and never quote or name commenters in the plans. If all of this is
+              empty, build the plan from the PR diff alone and do not mention any missing
+              Asana context in the comment.
 
             Base test URL (may be empty): ${{ inputs.staging_base_url }}
 
@@ -109,6 +133,12 @@ jobs:
 
               If the diff is large, focus on files most likely to have user-facing impact
               (views/blade templates, REST responses, app payloads). Skim infra files.
+
+              Also try to Read the QA fixtures file at: ${{ inputs.fixtures_path }}
+              (repo-relative; the repo is checked out). If it exists, it lists this site's
+              standing test resources — named links (e.g. "Paywalled article") and named
+              test accounts (e.g. "Subscribed user") — for reuse in scenarios. If it
+              doesn't exist, skip it silently and never mention it in the plans.
 
             Step 2 — Compose the test plan using EXACTLY this structure (shown as Markdown;
             Step 3 CASE A converts it to Asana HTML, CASE B keeps it as Markdown):
@@ -159,6 +189,13 @@ jobs:
               Environment; a scenario with no data needs no Test data) — "Steps" is the only
               subsection that always appears, and its label is omitted only if it is the
               scenario's sole subsection.
+            - When the fixtures file has a matching link or account, use it VERBATIM in
+              Preconditions / Test data instead of describing one abstractly: "Log in as
+              qa-subscriber@example.com (subscribed user)" beats "log in as a subscribed
+              user". Convert fixture paths to full links per the link rule. If no fixture
+              matches what a scenario needs, describe the needed link/account as before.
+              NEVER write passwords into the plan — point to credentials only the way the
+              fixtures file itself does (e.g. a password-manager entry name).
             - Frame every scenario from the user's POV ("As a logged-out visitor, I tap…"),
               never the engineer's ("the paywall_status meta returns true").
             - Do NOT flag spec-vs-build discrepancies anywhere in the plan — those surface
@@ -243,6 +280,9 @@ jobs:
               the reviewer starts. Only mention access if the feature genuinely requires an
               unusual account type or permission, stated as a plain fact ("you'll need an
               admin account"), not as something to go obtain.
+            - Fixture LINKS are welcome here (e.g. the paywalled article to open), but
+              NEVER reference internal test accounts from the fixtures file — external
+              reviewers use their own logins.
             - NEVER mention spec-vs-build discrepancies here either; those are handled in
               code review.
 
