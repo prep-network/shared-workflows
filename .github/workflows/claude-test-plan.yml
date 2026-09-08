@@ -140,6 +140,11 @@ jobs:
               test accounts (e.g. "Subscribed user") — for reuse in scenarios. If it
               doesn't exist, skip it silently and never mention it in the plans.
 
+              If a Base test URL is provided, you MAY curl or WebFetch that staging host to
+              verify fixtures actually exist (e.g. event 2040 and other listed records) and
+              that paths resolve. Use only the staging base URL — not Asana, GitHub, or any
+              other host. Do not use curl to publish; that is Step 3.
+
             Step 2 — Compose the test plan using EXACTLY this structure (shown as Markdown;
             Step 3 CASE A converts it to Asana HTML, CASE B keeps it as Markdown):
 
@@ -325,7 +330,7 @@ jobs:
 
             Stop after writing the file(s). The workflow publishes them in the next steps.
           claude_args: |
-            --allowedTools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Read,Write,Glob,Grep"
+            --allowedTools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Bash(curl:*),WebFetch(domain:staging-events.prephoops.com),Read,Write,Glob,Grep"
 
       - name: Publish plan to Asana subtask
         id: asana
