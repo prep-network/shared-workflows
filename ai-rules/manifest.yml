@@ -1,0 +1,26 @@
+# ai-rules manifest
+#
+# Fragment groups live in ai-rules/<group>/*.md — files within a group are
+# concatenated in filename order, groups in the order listed below. The result is
+# written between BEGIN/END markers in each target repo's `file`; content outside
+# the markers (repo-specific instructions) is left untouched, and the file is
+# created if it doesn't exist yet.
+#
+# Edit fragments here, not in a downstream repo — the sync workflow overwrites
+# whatever is between the markers on every run.
+
+targets:
+  prep-network:
+    repo: prep-network/prep-network
+    groups: [shared, wordpress-vip]
+    file: CLAUDE.md
+
+  events:
+    repo: prep-network/events
+    groups: [shared, laravel-boost]
+    file: CLAUDE.md
+
+  data:
+    repo: prep-network/data
+    groups: [shared, laravel-boost]
+    file: CLAUDE.md
