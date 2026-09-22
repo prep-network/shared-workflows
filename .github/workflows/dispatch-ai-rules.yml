@@ -132,6 +132,11 @@ jobs:
           composer install --no-interaction --prefer-dist --optimize-autoloader
           [ -f .env ] || cp .env.example .env
           php artisan key:generate --ansi --force
+          # Don't rely on the downstream repo's own composer.json having a
+          # post-autoload-dump -> package:discover hook (events' doesn't) --
+          # without it, Boost's auto-discovered provider never registers and
+          # boost:update fails with "no commands defined in the boost namespace".
+          php artisan package:discover --ansi
           php artisan boost:update
 
       - name: Open PR with changes
