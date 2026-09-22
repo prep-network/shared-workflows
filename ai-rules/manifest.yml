@@ -2,36 +2,54 @@
 #
 # Fragment groups live in ai-rules/<group>/*.md — files within a group are
 # concatenated in filename order, groups in the order listed below, then written
-# into each target's `file` according to its `mode` (see render_ai_rules.py):
+# to every file listed in a target's `outputs`, each according to its own mode
+# (see render_ai_rules.py):
 #
-#   - mode: block (default) — embedded between BEGIN/END markers in an existing,
-#     also hand-maintained file; content outside the markers is left untouched.
+#   - mode: block — embedded between BEGIN/END markers in an existing, also
+#     hand-maintained file; content outside the markers is left untouched. Used
+#     for every repo's CLAUDE.md, which is hand-authored everywhere here (even
+#     in events/data, boost.json's `agents` list has no `claude_code` entry, so
+#     Laravel Boost never generates CLAUDE.md in those repos either).
 #   - mode: whole-file — the fragments ARE the entire file, fully owned by the
-#     sync. Required for Laravel Boost's `.ai/guidelines/*.md`: Boost treats
-#     CLAUDE.md/AGENTS.md themselves as regenerated output (wiped on
-#     boost:install/boost:update), so shared rules must live in its supported
-#     custom-guideline input directory instead — Boost then folds this file into
-#     every agent file it generates (AGENTS.md, CLAUDE.md, etc.), so it also
-#     reaches tools that don't read CLAUDE.md specifically.
+#     sync. Required for Laravel Boost's `.ai/guidelines/*.md`: Boost treats its
+#     own outputs (AGENTS.md, and any per-agent file such as
+#     .cursor/rules/laravel-boost.mdc) as regenerated, wiped on every
+#     boost:install/boost:update, so shared rules must live in its supported
+#     custom-guideline *input* directory instead.
+#
+# `boost: true` marks a target whose downstream repo uses Laravel Boost. The
+# dispatch workflow runs `php artisan boost:update` there after rendering, so
+# the sync PR already contains a regenerated AGENTS.md (and any other
+# Boost-managed agent file) reflecting the new .ai/guidelines/shared-rules.md
+# — no manual boost:update step needed once the PR merges.
 #
 # Edit fragments here, not in a downstream repo — the sync workflow overwrites
-# the managed block/file on every run.
+# every managed block/file on every run.
 
 targets:
   prep-network:
     repo: prep-network/prep-network
     groups: [shared, wordpress-vip]
-    file: CLAUDE.md
-    mode: block
+    outputs:
+      - file: CLAUDE.md
+        mode: block
 
   events:
     repo: prep-network/events
     groups: [shared, laravel-boost]
-    file: .ai/guidelines/shared-rules.md
-    mode: whole-file
+    boost: true
+    outputs:
+      - file: CLAUDE.md
+        mode: block
+      - file: .ai/guidelines/shared-rules.md
+        mode: whole-file
 
   data:
     repo: prep-network/data
     groups: [shared, laravel-boost]
-    file: .ai/guidelines/shared-rules.md
-    mode: whole-file
+    boost: true
+    outputs:
+      - file: CLAUDE.md
+        mode: block
+      - file: .ai/guidelines/shared-rules.md
+        mode: whole-file

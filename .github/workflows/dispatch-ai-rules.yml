@@ -1,21 +1,32 @@
 # Dispatch AI Rules — push-based fan-out.
 # Fires whenever ai-rules/ (or the renderer) changes on master, and pushes the
-# regenerated shared rules block straight to every repo listed in
-# ai-rules/manifest.yml, opening a PR in each with the diff. This is the
-# "shared-workflows pushes out" counterpart to sync-ai-rules.yml (which a
-# downstream repo calls to pull the latest rules on its own schedule) — use this
-# one so edits here reach every repo immediately instead of waiting on a poll.
+# regenerated shared rules to every repo listed in ai-rules/manifest.yml,
+# opening a PR in each with the diff. This is the "shared-workflows pushes out"
+# counterpart to sync-ai-rules.yml (which a downstream repo calls to pull the
+# latest rules on its own schedule) — use this one so edits here reach every
+# repo immediately instead of waiting on a poll.
 #
-# Requires a repository secret AI_RULES_SYNC_TOKEN: a token with Contents
-# (read/write) and Pull requests (read/write) access to every repo in
-# ai-rules/manifest.yml. The default GITHUB_TOKEN only has permission on this
-# repo, so it can't push branches or open PRs elsewhere.
-#   - Simplest: a fine-grained PAT scoped to prep-network/prep-network,
-#     prep-network/events, prep-network/data with those two permissions, added
-#     under this repo's Settings -> Secrets and variables -> Actions.
-#   - More robust long-term: a small dedicated GitHub App installed on those
-#     three repos, minting a short-lived token per run via
-#     actions/create-github-app-token instead of a long-lived PAT.
+# For targets with `boost: true` in the manifest, this also runs
+# `php artisan boost:update` in the downstream checkout after rendering, so the
+# PR ships with a regenerated AGENTS.md (and any other Boost-managed agent
+# file, e.g. .cursor/rules/laravel-boost.mdc) already reflecting the new
+# .ai/guidelines/shared-rules.md — merging the PR is the only step needed,
+# no manual boost:update afterwards.
+#
+# Required secrets on this repo (Settings -> Secrets and variables -> Actions):
+#   - AI_RULES_SYNC_TOKEN: [redacted]] with Contents (read/write) and Pull requests
+#     (read/write) access to every repo in ai-rules/manifest.yml. The default
+#     GITHUB_TOKEN only has permission on this repo, so it can't push branches
+#     or open PRs elsewhere.
+#       - Simplest: a fine-grained PAT scoped to prep-network/prep-network,
+#         prep-network/events, prep-network/data with those two permissions.
+#       - More robust long-term: a small dedicated GitHub App installed on
+#         those three repos, minting a short-lived token per run via
+#         actions/create-github-app-token instead of a long-lived PAT.
+#   - FLUX_USERNAME / FLUX_LICENSE_KEY: [redacted]] auth for the private
+#     livewire/flux-pro package — only needed because `composer install` must
+#     succeed before `php artisan boost:update` can run for any `boost: true`
+#     target. Same credentials already used in events'/data's own CI.
 #
 # Adding a repo: add it to ai-rules/manifest.yml and make sure
 # AI_RULES_SYNC_TOKEN covers it — no workflow edits needed, the matrix below is
@@ -38,7 +49,7 @@ jobs:
   discover:
     runs-on: ubuntu-latest
     outputs:
-      repos: ${{ steps.list.outputs.repos }}
+      targets: ${{ steps.list.outputs.targets }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -50,7 +61,11 @@ jobs:
           python3 -c "
           import yaml, json
           m = yaml.safe_load(open('ai-rules/manifest.yml'))
-          print('repos=' + json.dumps([t['repo'] for t in m['targets'].values()]))
+          targets = [
+              {'repo': t['repo'], 'boost': bool(t.get('boost', False))}
+              for t in m['targets'].values()
+          ]
+          print('targets=' + json.dumps(targets))
           " >> "$GITHUB_OUTPUT"
 
   sync:
@@ -59,15 +74,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        repo: ${{ fromJson(needs.discover.outputs.repos) }}
+        target: ${{ fromJson(needs.discover.outputs.targets) }}
     steps:
       - name: Checkout shared-workflows (ai-rules source)
         uses: actions/checkout@v4
 
-      - name: Checkout ${{ matrix.repo }}
+      - name: Checkout ${{ matrix.target.repo }}
         uses: actions/checkout@v4
         with:
-          repository: ${{ matrix.repo }}
+          repository: ${{ matrix.target.repo }}
           token: ${{ secrets.AI_RULES_SYNC_TOKEN }}
           path: downstream
 
@@ -83,8 +98,30 @@ jobs:
           python3 scripts/render_ai_rules.py \
             --manifest ai-rules/manifest.yml \
             --rules-root ai-rules \
-            --repo "${{ matrix.repo }}" \
+            --repo "${{ matrix.target.repo }}" \
             --target-checkout downstream
+
+      - name: Setup PHP
+        if: matrix.target.boost
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer:v2
+          coverage: none
+
+      - name: Regenerate Boost guidelines (AGENTS.md, etc.)
+        if: matrix.target.boost
+        working-directory: downstream
+        env:
+          FLUX_USERNAME: ${{ secrets.FLUX_USERNAME }}
+          FLUX_LICENSE_KEY: ${{ secrets.FLUX_LICENSE_KEY }}
+        run: |
+          set -euo pipefail
+          composer config http-basic.composer.fluxui.dev "$FLUX_USERNAME" "$FLUX_LICENSE_KEY"
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+          [ -f .env ] || cp .env.example .env
+          php artisan key:generate --ansi --force
+          php artisan boost:update
 
       - name: Open PR with changes
         working-directory: downstream
@@ -92,11 +129,6 @@ jobs:
           GH_TOKEN: ${{ secrets.AI_RULES_SYNC_TOKEN }}
         run: |
           set -euo pipefail
-          if git diff --quiet; then
-            echo "No changes to AI rules for ${{ matrix.repo }}; nothing to do."
-            exit 0
-          fi
-
           branch="chore/sync-ai-rules"
           base="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)"
 
@@ -104,6 +136,16 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -B "$branch"
           git add -A
+
+          # --cached, not plain `git diff`: a target's first sync introduces a
+          # brand-new untracked file (e.g. .ai/guidelines/shared-rules.md),
+          # which a plain `git diff --quiet` would miss entirely since it only
+          # compares already-tracked files.
+          if git diff --cached --quiet; then
+            echo "No changes to AI rules for ${{ matrix.target.repo }}; nothing to do."
+            exit 0
+          fi
+
           git commit -m "chore: sync shared AI rules"
           git push --force origin "$branch"
 

@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Render shared ai-rules fragments into a downstream repo's rules file.
+"""Render shared ai-rules fragments into a downstream repo's rules files.
 
 Looks up the manifest entry whose `repo` matches --repo, concatenates the
 fragment files under <rules-root>/<group>/*.md for each group listed (sorted by
 filename within a group, groups in the order listed in the manifest), then
-writes the result into <target-checkout>/<file> according to the target's mode:
+writes that body to every entry in the target's `outputs`, each according to
+its own mode:
 
-  - mode: block (default) — embed the fragments between BEGIN/END markers in an
-    existing file, preserving everything outside the markers. Use this when the
-    file is also hand-maintained (e.g. a repo's CLAUDE.md).
+  - mode: block — embed the fragments between BEGIN/END markers in an existing
+    file, preserving everything outside the markers. Use this when the file is
+    also hand-maintained (e.g. a repo's CLAUDE.md).
   - mode: whole-file — write the fragments as the entire file content, fully
     owned by this script. Use this for a dedicated stub the file's consumer
     composes into other output on its own (e.g. Laravel Boost's
@@ -104,20 +105,22 @@ def main() -> None:
         print(f"::error::No ai-rules manifest target for repo {args.repo}", file=sys.stderr)
         sys.exit(1)
 
-    mode = target.get("mode", "block")
     body = gather_fragments(target["groups"], args.rules_root)
-    file_path = args.target_checkout / target["file"]
 
-    if mode == "whole-file":
-        write_whole_file(file_path, body)
-    elif mode == "block":
-        block = f"{BEGIN_MARKER}\n{body}\n{END_MARKER}\n"
-        upsert_block(file_path, block)
-    else:
-        print(f"::error::Unknown mode '{mode}' for target repo {args.repo}", file=sys.stderr)
-        sys.exit(1)
+    for output in target["outputs"]:
+        mode = output.get("mode", "block")
+        file_path = args.target_checkout / output["file"]
 
-    print(f"Rendered groups {target['groups']} into {file_path} (mode: {mode})")
+        if mode == "whole-file":
+            write_whole_file(file_path, body)
+        elif mode == "block":
+            block = f"{BEGIN_MARKER}\n{body}\n{END_MARKER}\n"
+            upsert_block(file_path, block)
+        else:
+            print(f"::error::Unknown mode '{mode}' for {args.repo}:{output['file']}", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"Rendered groups {target['groups']} into {file_path} (mode: {mode})")
 
 
 if __name__ == "__main__":
