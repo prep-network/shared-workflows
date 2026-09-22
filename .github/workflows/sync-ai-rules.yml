@@ -93,7 +93,12 @@ jobs:
           git commit -m "chore: sync shared AI rules"
           git push --force origin "$branch"
 
-          if gh pr view "$branch" >/dev/null 2>&1; then
+          # gh pr view proved unreliable here (returned non-zero even when a PR
+          # already existed for this branch, causing gh pr create to then fail
+          # loudly with "a pull request ... already exists"). gh pr list --head
+          # queries the API directly by head branch, which is unambiguous.
+          existing_pr_count="$(gh pr list --head "$branch" --state open --json number --jq 'length')"
+          if [ "$existing_pr_count" -gt 0 ]; then
             echo "PR already open for $branch; pushed update."
           else
             gh pr create --title "chore: sync shared AI rules" \
