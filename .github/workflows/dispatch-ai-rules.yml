@@ -14,23 +14,21 @@
 # no manual boost:update afterwards.
 #
 # Required secrets on this repo (Settings -> Secrets and variables -> Actions):
-#   - AI_RULES_SYNC_TOKEN: [redacted]] with Contents (read/write) and Pull requests
-#     (read/write) access to every repo in ai-rules/manifest.yml. The default
-#     GITHUB_TOKEN only has permission on this repo, so it can't push branches
-#     or open PRs elsewhere.
-#       - Simplest: a fine-grained PAT scoped to prep-network/prep-network,
-#         prep-network/events, prep-network/data with those two permissions.
-#       - More robust long-term: a small dedicated GitHub App installed on
-#         those three repos, minting a short-lived token per run via
-#         actions/create-github-app-token instead of a long-lived PAT.
-#   - FLUX_USERNAME / FLUX_LICENSE_KEY: [redacted]] auth for the private
+#   - AI_RULES_APP_ID / AI_RULES_APP_PRIVATE_KEY: identify a GitHub App
+#     installed on every repo in ai-rules/manifest.yml, with repository
+#     permissions Contents (read/write) and Pull requests (read/write). The
+#     default GITHUB_TOKEN only has permission on this repo, so it can't push
+#     branches or open PRs elsewhere. The sync job uses
+#     actions/create-github-app-token to mint a short-lived installation token
+#     from these each run.
+#   - FLUX_USERNAME / FLUX_LICENSE_KEY: composer auth for the private
 #     livewire/flux-pro package — only needed because `composer install` must
 #     succeed before `php artisan boost:update` can run for any `boost: true`
 #     target. Same credentials already used in events'/data's own CI.
 #
-# Adding a repo: add it to ai-rules/manifest.yml and make sure
-# AI_RULES_SYNC_TOKEN covers it — no workflow edits needed, the matrix below is
-# generated from the manifest.
+# Adding a repo: add it to ai-rules/manifest.yml, make sure the GitHub App is
+# installed there with the permissions above — no workflow edits needed, the
+# matrix below is generated from the manifest.
 
 name: Dispatch AI Rules
 
@@ -62,7 +60,11 @@ jobs:
           import yaml, json
           m = yaml.safe_load(open('ai-rules/manifest.yml'))
           targets = [
-              {'repo': t['repo'], 'boost': bool(t.get('boost', False))}
+              {
+                  'repo': t['repo'],
+                  'repo_name': t['repo'].split('/')[-1],
+                  'boost': bool(t.get('boost', False)),
+              }
               for t in m['targets'].values()
           ]
           print('targets=' + json.dumps(targets))
@@ -76,6 +78,15 @@ jobs:
       matrix:
         target: ${{ fromJson(needs.discover.outputs.targets) }}
     steps:
+      - name: Generate GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.AI_RULES_APP_ID }}
+          private-key: ${{ secrets.AI_RULES_APP_PRIVATE_KEY }}
+          owner: prep-network
+          repositories: ${{ matrix.target.repo_name }}
+
       - name: Checkout shared-workflows (ai-rules source)
         uses: actions/checkout@v4
 
@@ -83,7 +94,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ matrix.target.repo }}
-          token: ${{ secrets.AI_RULES_SYNC_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           path: downstream
 
       - uses: actions/setup-python@v5
@@ -126,7 +137,7 @@ jobs:
       - name: Open PR with changes
         working-directory: downstream
         env:
-          GH_TOKEN: ${{ secrets.AI_RULES_SYNC_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
           branch="chore/sync-ai-rules"
