@@ -3,9 +3,18 @@
 
 Looks up the manifest entry whose `repo` matches --repo, concatenates the
 fragment files under <rules-root>/<group>/*.md for each group listed (sorted by
-filename within a group, groups in the order listed in the manifest), and writes
-the result between BEGIN/END markers in <target-checkout>/<file>. Content outside
-the markers is preserved verbatim; the file is created if it doesn't exist yet.
+filename within a group, groups in the order listed in the manifest), then
+writes the result into <target-checkout>/<file> according to the target's mode:
+
+  - mode: block (default) — embed the fragments between BEGIN/END markers in an
+    existing file, preserving everything outside the markers. Use this when the
+    file is also hand-maintained (e.g. a repo's CLAUDE.md).
+  - mode: whole-file — write the fragments as the entire file content, fully
+    owned by this script. Use this for a dedicated stub the file's consumer
+    composes into other output on its own (e.g. Laravel Boost's
+    `.ai/guidelines/*.md`, which Boost folds into every agent file it generates
+    on `boost:install`/`boost:update` — so this must NOT sit inside one of
+    those generated files, or a Boost regen can wipe it).
 
 Usage:
     render_ai_rules.py \
@@ -32,9 +41,18 @@ BLOCK_PATTERN = re.compile(
     re.DOTALL,
 )
 
+# Laravel Boost derives a guideline's description from the text after the first
+# "# " heading, so a whole-file guideline stub must start with one.
+WHOLE_FILE_TITLE = "# Shared Team Guidelines"
+WHOLE_FILE_NOTE = (
+    "> Managed by [prep-network/shared-workflows](https://github.com/prep-network/shared-workflows) "
+    "`ai-rules/` — edit there, not here; this file is regenerated on every sync "
+    "and local edits will be overwritten."
+)
 
-def render_block(groups: list[str], rules_root: pathlib.Path) -> str:
-    """Concatenate every fragment in the given groups into one marked block."""
+
+def gather_fragments(groups: list[str], rules_root: pathlib.Path) -> str:
+    """Concatenate every fragment file in the given groups into one body."""
     sections = []
     for group in groups:
         group_dir = rules_root / group
@@ -43,11 +61,10 @@ def render_block(groups: list[str], rules_root: pathlib.Path) -> str:
             print(f"::warning::No fragments found in {group_dir}", file=sys.stderr)
         for fragment in fragments:
             sections.append(fragment.read_text().rstrip() + "\n")
-    body = "\n".join(sections).rstrip()
-    return f"{BEGIN_MARKER}\n{body}\n{END_MARKER}\n"
+    return "\n".join(sections).rstrip()
 
 
-def upsert(file_path: pathlib.Path, block: str) -> None:
+def upsert_block(file_path: pathlib.Path, block: str) -> None:
     """Replace the marked block in file_path, or prepend it if absent/missing."""
     existing = file_path.read_text() if file_path.exists() else ""
     if BLOCK_PATTERN.search(existing):
@@ -61,6 +78,13 @@ def upsert(file_path: pathlib.Path, block: str) -> None:
         new_content = block
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(new_content)
+
+
+def write_whole_file(file_path: pathlib.Path, body: str) -> None:
+    """Overwrite file_path entirely — the file is fully owned by this script."""
+    content = f"{WHOLE_FILE_TITLE}\n\n{WHOLE_FILE_NOTE}\n\n{body}\n"
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_text(content)
 
 
 def main() -> None:
@@ -80,10 +104,20 @@ def main() -> None:
         print(f"::error::No ai-rules manifest target for repo {args.repo}", file=sys.stderr)
         sys.exit(1)
 
-    block = render_block(target["groups"], args.rules_root)
+    mode = target.get("mode", "block")
+    body = gather_fragments(target["groups"], args.rules_root)
     file_path = args.target_checkout / target["file"]
-    upsert(file_path, block)
-    print(f"Rendered groups {target['groups']} into {file_path}")
+
+    if mode == "whole-file":
+        write_whole_file(file_path, body)
+    elif mode == "block":
+        block = f"{BEGIN_MARKER}\n{body}\n{END_MARKER}\n"
+        upsert_block(file_path, block)
+    else:
+        print(f"::error::Unknown mode '{mode}' for target repo {args.repo}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Rendered groups {target['groups']} into {file_path} (mode: {mode})")
 
 
 if __name__ == "__main__":

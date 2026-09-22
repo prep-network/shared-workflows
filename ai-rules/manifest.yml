@@ -1,26 +1,37 @@
 # ai-rules manifest
 #
 # Fragment groups live in ai-rules/<group>/*.md — files within a group are
-# concatenated in filename order, groups in the order listed below. The result is
-# written between BEGIN/END markers in each target repo's `file`; content outside
-# the markers (repo-specific instructions) is left untouched, and the file is
-# created if it doesn't exist yet.
+# concatenated in filename order, groups in the order listed below, then written
+# into each target's `file` according to its `mode` (see render_ai_rules.py):
+#
+#   - mode: block (default) — embedded between BEGIN/END markers in an existing,
+#     also hand-maintained file; content outside the markers is left untouched.
+#   - mode: whole-file — the fragments ARE the entire file, fully owned by the
+#     sync. Required for Laravel Boost's `.ai/guidelines/*.md`: Boost treats
+#     CLAUDE.md/AGENTS.md themselves as regenerated output (wiped on
+#     boost:install/boost:update), so shared rules must live in its supported
+#     custom-guideline input directory instead — Boost then folds this file into
+#     every agent file it generates (AGENTS.md, CLAUDE.md, etc.), so it also
+#     reaches tools that don't read CLAUDE.md specifically.
 #
 # Edit fragments here, not in a downstream repo — the sync workflow overwrites
-# whatever is between the markers on every run.
+# the managed block/file on every run.
 
 targets:
   prep-network:
     repo: prep-network/prep-network
     groups: [shared, wordpress-vip]
     file: CLAUDE.md
+    mode: block
 
   events:
     repo: prep-network/events
     groups: [shared, laravel-boost]
-    file: CLAUDE.md
+    file: .ai/guidelines/shared-rules.md
+    mode: whole-file
 
   data:
     repo: prep-network/data
     groups: [shared, laravel-boost]
-    file: CLAUDE.md
+    file: .ai/guidelines/shared-rules.md
+    mode: whole-file
