@@ -15,9 +15,6 @@ $cache_key = sprintf(
 );
 ```
 
-Invalidate explicitly on the CRUD operations that change the cached data — don't
-rely on TTL alone for data that changes on a known event.
-
 ### Database
 - Prefer custom tables over postmeta for anything queried at scale.
 - Use `PN_Query` / `PN_Player_Ranking_Query_Builder` over ad-hoc `WP_Query` +

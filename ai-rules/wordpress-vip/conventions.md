@@ -16,8 +16,8 @@ plus a core plugin architecture (`plugins/prepnetwork-functionality/` and friend
 - Extract a Blade component only once a pattern repeats 3+ times.
 
 ### Multisite
-- Always consider blog/site context; use `get_current_blog_id()` in cache keys and
-  multisite-aware functions instead of hardcoded site IDs.
+- Use `get_current_blog_id()` in cache keys and multisite-aware functions (see
+  the shared multi-tenant awareness rule).
 
 ### Documentation
 - Consult the relevant `docs/*.md` file before implementing (querying, caching,

@@ -51,7 +51,10 @@ def upsert(file_path: pathlib.Path, block: str) -> None:
     """Replace the marked block in file_path, or prepend it if absent/missing."""
     existing = file_path.read_text() if file_path.exists() else ""
     if BLOCK_PATTERN.search(existing):
-        new_content = BLOCK_PATTERN.sub(block, existing)
+        # Use a replacement function, not a string: fragment content routinely
+        # contains literal backslashes (e.g. PHP namespaces like App\View\App),
+        # which re.sub would otherwise try to interpret as backreferences.
+        new_content = BLOCK_PATTERN.sub(lambda _match: block, existing)
     elif existing.strip():
         new_content = block + "\n" + existing.lstrip("\n")
     else:
