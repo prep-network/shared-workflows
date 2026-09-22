@@ -1,9 +1,14 @@
-# Sync AI Rules — reusable workflow.
+# Sync AI Rules — reusable workflow (pull-based).
 # Regenerates the shared AI-assistant rules block (commit style, PR hygiene,
 # testing discipline, code hygiene, security baseline, plus this repo's
 # stack-specific fragments — see ai-rules/manifest.yml) from this repo's
 # ai-rules/ directory into the calling repo's CLAUDE.md, and opens a PR with the
 # diff for review.
+#
+# This is the repo-initiated counterpart to dispatch-ai-rules.yml (which pushes
+# updates out from shared-workflows automatically whenever ai-rules/ changes).
+# Use this one for a manual/scheduled re-sync from the downstream side — you
+# don't need it just to receive pushed updates.
 #
 # The rendered content lives between the BEGIN/END SHARED AI RULES markers in
 # CLAUDE.md — everything outside those markers (repo-specific instructions) is
