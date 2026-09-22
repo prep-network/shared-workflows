@@ -128,9 +128,21 @@ jobs:
           FLUX_LICENSE_KEY: ${{ secrets.FLUX_LICENSE_KEY }}
         run: |
           set -euo pipefail
+          # .env must exist BEFORE `composer install`: events' composer.json
+          # runs `php artisan optimize` (config:cache) from its post-install-cmd
+          # hook. If that runs with no .env present, it bakes APP_ENV=production
+          # (env()'s fallback default) into bootstrap/cache/config.php -- and
+          # once config is cached, Laravel stops reading .env entirely for every
+          # later artisan call in this checkout, so creating .env afterwards has
+          # no effect. Boost's provider gates its commands to non-production
+          # environments, so under a falsely-cached "production" it silently
+          # never registers them, and boost:update fails with "no commands
+          # defined in the boost namespace" even though the package installed
+          # fine. (data has no such post-install-cmd hook, which is why it
+          # wasn't affected by this.)
+          cp .env.example .env
           composer config http-basic.composer.fluxui.dev "$FLUX_USERNAME" "$FLUX_LICENSE_KEY"
           composer install --no-interaction --prefer-dist --optimize-autoloader
-          [ -f .env ] || cp .env.example .env
           php artisan key:generate --ansi --force
           # Don't rely on the downstream repo's own composer.json having a
           # post-autoload-dump -> package:discover hook (events' doesn't) --
@@ -165,7 +177,12 @@ jobs:
           git commit -m "chore: sync shared AI rules"
           git push --force origin "$branch"
 
-          if gh pr view "$branch" >/dev/null 2>&1; then
+          # gh pr view proved unreliable here (returned non-zero even when a PR
+          # already existed for this branch, causing gh pr create to then fail
+          # loudly with "a pull request ... already exists"). gh pr list --head
+          # queries the API directly by head branch, which is unambiguous.
+          existing_pr_count="$(gh pr list --head "$branch" --state open --json number --jq 'length')"
+          if [ "$existing_pr_count" -gt 0 ]; then
             echo "PR already open for $branch; pushed update."
           else
             gh pr create --title "chore: sync shared AI rules" \
