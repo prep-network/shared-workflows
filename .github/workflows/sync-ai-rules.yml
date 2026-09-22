@@ -1,0 +1,102 @@
+# Sync AI Rules — reusable workflow (pull-based).
+# Regenerates the shared AI-assistant rules block (commit style, PR hygiene,
+# testing discipline, code hygiene, security baseline, plus this repo's
+# stack-specific fragments — see ai-rules/manifest.yml) from this repo's
+# ai-rules/ directory into the calling repo's CLAUDE.md, and opens a PR with the
+# diff for review.
+#
+# This is the repo-initiated counterpart to dispatch-ai-rules.yml (which pushes
+# updates out from shared-workflows automatically whenever ai-rules/ changes).
+# Use this one for a manual/scheduled re-sync from the downstream side — you
+# don't need it just to receive pushed updates.
+#
+# The rendered content lives between the BEGIN/END SHARED AI RULES markers in
+# CLAUDE.md — everything outside those markers (repo-specific instructions) is
+# left untouched. Edit shared content in shared-workflows/ai-rules/, not in a
+# downstream repo's CLAUDE.md directly; local edits inside the markers are
+# overwritten on the next sync.
+#
+# To adopt: add a caller workflow (e.g. on: schedule, workflow_dispatch, or
+# repository_dispatch) in the downstream repo that calls this one — copy it from
+# a repo already using it. Uses the default GITHUB_TOKEN; the caller job needs
+# `permissions: contents: write, pull-requests: write`. Also add a `repo:` entry
+# for the downstream repo in ai-rules/manifest.yml.
+
+name: Sync AI Rules
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch/ref of shared-workflows to pull ai-rules fragments from.
+        required: false
+        type: string
+        default: master
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout calling repo
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Checkout shared-workflows (ai-rules source)
+        uses: actions/checkout@v4
+        with:
+          repository: prep-network/shared-workflows
+          ref: ${{ inputs.ref }}
+          path: shared-workflows
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install renderer dependencies
+        run: pip install --quiet pyyaml
+
+      - name: Render shared AI rules
+        run: |
+          python3 shared-workflows/scripts/render_ai_rules.py \
+            --manifest shared-workflows/ai-rules/manifest.yml \
+            --rules-root shared-workflows/ai-rules \
+            --repo "${{ github.repository }}" \
+            --target-checkout repo
+
+      - name: Open PR with changes
+        working-directory: repo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch="chore/sync-ai-rules"
+          base="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add -A
+
+          # --cached, not plain `git diff`: a first sync introduces brand-new
+          # untracked files (e.g. .ai/guidelines/shared-rules.md), which a
+          # plain `git diff --quiet` would miss since it only compares
+          # already-tracked files.
+          if git diff --cached --quiet; then
+            echo "No changes to AI rules; nothing to do."
+            exit 0
+          fi
+
+          git commit -m "chore: sync shared AI rules"
+          git push --force origin "$branch"
+
+          if gh pr view "$branch" >/dev/null 2>&1; then
+            echo "PR already open for $branch; pushed update."
+          else
+            gh pr create --title "chore: sync shared AI rules" \
+              --base "$base" --head "$branch" \
+              --body "Automated sync of the shared AI rules block from [prep-network/shared-workflows](https://github.com/prep-network/shared-workflows)'s \`ai-rules/\` directory. Review the diff before merging — these instructions steer AI coding assistants in this repo."
+          fi
