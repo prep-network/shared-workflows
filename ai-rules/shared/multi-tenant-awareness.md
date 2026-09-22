@@ -1,6 +1,6 @@
 ## Multi-Site / Multi-Tenant Awareness
 
-Both platforms serve multiple sites/brands from shared infrastructure — never
+This platform serves multiple sites/brands from shared infrastructure — never
 assume a single-tenant default:
 
 - Cache keys must include the site/tenant identifier whenever the cached value
