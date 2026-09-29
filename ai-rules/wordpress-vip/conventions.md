@@ -3,6 +3,14 @@
 Multisite WordPress VIP Go platform. Sage 10 theme (Blade + Tailwind + Alpine.js)
 plus a core plugin architecture (`plugins/prepnetwork-functionality/` and friends).
 
+### Formatting
+- PHPCS with WordPress Coding Standards owns formatting. Don't restyle files
+  to PSR-12.
+
+### Comments
+- Untyped functions get a short docblock for params and returns the signature
+  does not declare. Don't narrate the body.
+
 ### File & class naming
 - Class files: `class-pn-[section]-[type].php`; static class pattern with an
   `init()` method that registers hooks.

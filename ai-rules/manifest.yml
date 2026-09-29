@@ -9,7 +9,11 @@
 #     hand-maintained file; content outside the markers is left untouched. Used
 #     for every repo's CLAUDE.md, which is hand-authored everywhere here (even
 #     in events/data, boost.json's `agents` list has no `claude_code` entry, so
-#     Laravel Boost never generates CLAUDE.md in those repos either).
+#     Laravel Boost never generates CLAUDE.md in those repos either). Also used
+#     for prep-network's AGENTS.md: Cursor reads AGENTS.md and does not treat
+#     CLAUDE.md as rules. Laravel targets do not get a renderer-owned AGENTS.md
+#     — Boost wipes that file on boost:update, so their copy comes from the
+#     guidelines input below.
 #   - mode: whole-file — the fragments ARE the entire file, fully owned by the
 #     sync. Required for Laravel Boost's `.ai/guidelines/*.md`: Boost treats its
 #     own outputs (AGENTS.md, and any per-agent file such as
@@ -32,6 +36,8 @@ targets:
     groups: [shared, wordpress-vip]
     outputs:
       - file: CLAUDE.md
+        mode: block
+      - file: AGENTS.md
         mode: block
 
   events:
